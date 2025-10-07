@@ -1,0 +1,14 @@
+[package]
+name = "mask_fastq"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+needletail = "0.5"
+flate2 = "1.0"
+clap = { version = "4.5", features = ["derive", "std"], default-features = false }
+
+[profile.release]
+opt-level = 3       # Optimize for speed
+lto = true          # Enable link-time optimization
+strip = true        # Strip symbols from binary
