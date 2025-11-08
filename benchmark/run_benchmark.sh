@@ -110,7 +110,8 @@ echo ""
 echo -e "${GREEN}Input file:${NC} $INPUT_FASTQ"
 echo -e "${GREEN}File size:${NC} $INPUT_SIZE"
 echo -e "${GREEN}Num reads:${NC} $NUM_READS"
-echo -e "${GREEN}Parameters:${NC} window=$WINDOW, entropy=$ENTROPY, k=$KMER"
+echo -e "${GREEN}Parameters:${NC} window=$WINDOW, entropy=$ENTROPY, ke=$KMER"
+echo -e "${GREEN}BBMask mode:${NC} entropy-only (maskrepeats=f, masklowentropy=t)"
 echo ""
 
 # Benchmark bbmask.sh
@@ -127,16 +128,20 @@ if [[ "$TIME_CMD" == "/usr/bin/time" ]]; then
         in="$INPUT_FASTQ" \
         out="$BBMASK_OUT" \
         entropy="$ENTROPY" \
-        k="$KMER" \
+        ke="$KMER" \
         window="$WINDOW" \
+        maskrepeats=f \
+        masklowentropy=t \
         2>&1 | tee "$BBMASK_LOG" | tee "$BBMASK_TIME"
 else
     { time bbmask.sh \
         in="$INPUT_FASTQ" \
         out="$BBMASK_OUT" \
         entropy="$ENTROPY" \
-        k="$KMER" \
+        ke="$KMER" \
         window="$WINDOW" \
+        maskrepeats=f \
+        masklowentropy=t \
         > "$BBMASK_LOG" 2>&1 ; } 2> "$BBMASK_TIME"
 fi
 
