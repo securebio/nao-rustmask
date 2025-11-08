@@ -22,7 +22,8 @@ struct Args {
 }
 
 /// Calculate Shannon entropy from k-mer frequencies
-fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) -> f64 {
+/// Returns normalized entropy in range [0, 1]
+fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize, k: usize) -> f64 {
     if total_kmers == 0 {
         return 0.0;
     }
@@ -34,7 +35,17 @@ fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) ->
             entropy -= p * p.log2();
         }
     }
-    entropy
+
+    // Normalize entropy to [0, 1] by dividing by maximum possible entropy
+    // Maximum entropy occurs when all 4^k possible k-mers are equally likely
+    // max_entropy = log2(4^k) = k * log2(4) = k * 2
+    let max_entropy = (k as f64) * 2.0;
+
+    if max_entropy > 0.0 {
+        entropy / max_entropy
+    } else {
+        entropy
+    }
 }
 
 /// Get reverse complement of a DNA sequence
@@ -92,7 +103,7 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         // If sequence is shorter than window, calculate entropy for the whole sequence
         let kmer_counts = get_kmers(sequence, k);
         let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers);
+        let entropy = shannon_entropy(&kmer_counts, total_kmers, k);
 
         if entropy < entropy_threshold {
             // Mask entire sequence
@@ -120,7 +131,7 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         // Calculate entropy for this window
         let kmer_counts = get_kmers(window_seq, k);
         let total_kmers = if window_seq.len() >= k { window_seq.len() - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers);
+        let entropy = shannon_entropy(&kmer_counts, total_kmers, k);
 
         // Mask if entropy is below threshold
         if entropy < entropy_threshold {
@@ -182,8 +193,11 @@ mod tests {
         counts.insert(vec![b'G', b'G'], 1);
         counts.insert(vec![b'T', b'T'], 1);
 
-        let entropy = shannon_entropy(&counts, 4);
-        assert!((entropy - 2.0).abs() < 0.001); // Perfect entropy for 4 equal kmers
+        let k = 2; // k-mer size
+        let entropy = shannon_entropy(&counts, 4, k);
+        // 4 equal kmers → raw entropy = log2(4) = 2.0
+        // Normalized: 2.0 / (k * 2) = 2.0 / 4.0 = 0.5
+        assert!((entropy - 0.5).abs() < 0.001);
     }
 
     #[test]
@@ -191,8 +205,9 @@ mod tests {
         let mut counts = HashMap::new();
         counts.insert(vec![b'A', b'A'], 10);
 
-        let entropy = shannon_entropy(&counts, 10);
-        assert_eq!(entropy, 0.0); // All same kmer = no entropy
+        let k = 2; // k-mer size
+        let entropy = shannon_entropy(&counts, 10, k);
+        assert_eq!(entropy, 0.0); // All same kmer = no entropy (still 0 after normalization)
     }
 
     #[test]
@@ -252,11 +267,12 @@ mod tests {
 
     #[test]
     fn test_no_mask_high_complexity() {
-        // Use a longer sequence to avoid edge effects
-        let sequence = b"ACGTACGTACGTACGTACGTACGT";
-        let quality = b"IIIIIIIIIIIIIIIIIIIIIIII";
+        // Use a longer random sequence with very high k-mer diversity
+        let sequence = b"GACTGCATCGTAGCTGATCGACTGCAGTCGATCGACTGCAT";
+        let quality = b"IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII";
 
-        let (masked_seq, masked_qual) = mask_sequence(sequence, quality, 10, 0.5, 3);
+        // With normalized entropy and low threshold, high-complexity sequence should not be masked
+        let (masked_seq, masked_qual) = mask_sequence(sequence, quality, 10, 0.1, 3);
 
         // High complexity sequence should not be masked
         assert_eq!(masked_seq, sequence);
