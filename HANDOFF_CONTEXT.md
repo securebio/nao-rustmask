@@ -10,10 +10,12 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 
 ### Update 2025-11-08
 - Binary built successfully (793KB)
-- All 5 Rust unit tests passing
-- Manual testing completed - masking works correctly for pure low-complexity sequences
-- **Issue discovered:** GCGCGC alternating pattern not masked (entropy 1.0 > threshold 0.55)
-- This may cause nf-test failure - needs investigation (see below)
+- All 8 Rust unit tests passing (including canonical k-mer tests)
+- Manual testing completed - masking works correctly for all low-complexity sequences
+- **Issue discovered and RESOLVED:** GCGCGC alternating pattern was not masked initially
+- **Root cause:** bbmask.sh uses canonical k-mers (lexicographically smaller of k-mer and reverse complement)
+- **Fix applied:** Modified mask_fastq to use canonical k-mers in entropy calculation
+- **Result:** ✅ All nf-tests passing (2/2)
 
 ## What Was Completed
 
@@ -62,27 +64,33 @@ nf-test test tests/modules/local/maskRead/main.nf.test
 - **First 5 sequences should contain 'N' (masked)**
 - **Remaining 11 sequences should NOT be masked** (identical to input)
 
-**⚠️ POTENTIAL TEST ISSUE DISCOVERED:**
+**✅ TEST ISSUE RESOLVED (2025-11-08):**
 
-During verification (2025-11-08), it was found that **sequence 3** (GCGCGC repeating pattern) is **NOT being masked** by the current implementation. This may cause the nf-test to fail.
+Initial issue: **sequence 3** (GCGCGC repeating pattern) was NOT being masked.
 
 **Analysis:**
 - Sequences 1, 2, 4, 5: All A's or T's → Entropy ≈ 0.0 → **MASKED** ✓
-- Sequence 3: GCGCGC alternating → Entropy ≈ 1.0 → **NOT MASKED** ✗
+- Sequence 3: GCGCGC alternating → Two 5-mers (GCGCG, CGCGC) → Entropy ≈ 1.0 → **NOT MASKED** ✗
 
-With k=5, the GCGCGC pattern produces two 5-mers (GCGCG and CGCGC) that alternate evenly, resulting in Shannon entropy of ~1.0, which is well above the 0.55 threshold.
+**Investigation:**
+Compared with bbmask.sh, which DOES mask GCGCGC. Discovered that bbmask uses **canonical k-mers**.
 
-**This needs investigation before nf-test will pass:**
-1. Run bbmask.sh on the same test data to see if it masks GCGCGC
-2. If bbmask DOES mask it, investigate why (different algorithm?)
-3. Either fix the mask_fastq algorithm OR update test expectations
+**Solution:**
+- GCGCG and CGCGC are reverse complements
+- Canonical form: both map to CGCGC (lexicographically smaller)
+- Result: Only 1 unique k-mer → Entropy = 0.0 → **MASKED** ✓
 
-**To compare with bbmask.sh:**
-```bash
-bbmask.sh in=test-data/toy-data/test-random-low-complexity.fastq \
-  out=bbmask_output.fastq.gz entropy=0.55 k=5 window=25
-zcat bbmask_output.fastq.gz | grep -A 3 "^@B1 1"
-```
+**Implementation:**
+Added canonical k-mer support to mask_fastq:
+- `reverse_complement()` function
+- `canonical_kmer()` function
+- Modified `get_kmers()` to use canonical forms
+- Added comprehensive tests
+
+**Verification:**
+- ✅ cargo test: 8/8 tests pass
+- ✅ Manual test: All 5 sequences masked correctly
+- ✅ nf-test: 2/2 tests pass
 
 #### Test 2: "Should run correctly on empty FASTQ data"
 - Process should succeed

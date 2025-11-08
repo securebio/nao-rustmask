@@ -1,133 +1,105 @@
 # Next Steps for Issue #323 - mask_fastq Implementation
 
-## Current Status ✅
+## ✅ Implementation Complete!
 
-The Rust utility `mask_fastq` has been implemented and is ready for testing. Here's what's been completed:
+The Rust utility `mask_fastq` has been successfully implemented and **all tests are passing**! Here's what was completed:
 
 - ✅ Rust binary built successfully (793KB static binary)
-- ✅ All 5 unit tests passing (`cargo test`)
+- ✅ All 8 unit tests passing (`cargo test`)
 - ✅ Manual FASTQ masking tested and working
 - ✅ Nextflow process updated to use new utility
-- ✅ Code reviewed and merged to branch
+- ✅ **nf-test suite: 2/2 tests PASSING** 🎉
+- ✅ Canonical k-mer issue discovered and fixed
 
-## What YOU Need to Run Locally 🏃
+## What Was Fixed
 
-### 1. Run nf-test Suite (REQUIRED)
+**Problem discovered:** GCGCGC sequence wasn't being masked initially
 
-This is the critical validation step that must be done locally with nf-test configured.
+**Root cause:** bbmask.sh uses canonical k-mers (lexicographically smaller of k-mer and reverse complement)
+- GCGCG and CGCGC are reverse complements
+- Both map to canonical form CGCGC
+- Result: Only 1 unique k-mer → entropy = 0.0 → masked correctly
 
-```bash
-# From project root
-nf-test test tests/modules/local/maskRead/main.nf.test
-```
+**Solution:** Updated mask_fastq to use canonical k-mers in entropy calculation
 
-**Expected outcome:**
-- Test 2 (empty file) should **PASS** ✓
-- Test 1 (FASTQ data) will likely **FAIL** ⚠️ due to GCGCGC sequence issue (see below)
+## Recommended Next Steps 🚀
 
-### 2. Investigate GCGCGC Masking Issue ⚠️
+### 1. Full Pipeline Testing (Recommended)
 
-**The Problem:**
-The test expects all first 5 sequences to be masked, but sequence 3 (GCGCGC repeating) is NOT being masked because its entropy (1.0) exceeds the threshold (0.55).
-
-**What to check:**
-
-#### Option A: Compare with bbmask.sh
-Run the original bbmask.sh on the same test data:
-
-```bash
-# If bbmask.sh is still available in your environment
-bbmask.sh in=test-data/toy-data/test-random-low-complexity.fastq \
-  out=bbmask_output.fastq.gz entropy=0.55 k=5 window=25
-
-# Check if it masks the GCGCGC sequence
-zcat bbmask_output.fastq.gz | grep -A 3 "^@B1 1"
-```
-
-**If bbmask DOES mask GCGCGC:**
-- The mask_fastq algorithm needs adjustment
-- Investigate how bbmask calculates entropy differently
-
-**If bbmask DOES NOT mask GCGCGC:**
-- The test expectations are wrong
-- Update the test in `tests/modules/local/maskRead/main.nf.test`
-
-#### Option B: Update Test Expectations
-If GCGCGC shouldn't be masked (which is mathematically correct with entropy > 0.55), update line 49 in the test file:
-
-```groovy
-// Current (line 49):
-assert masked_seqs.take(5).every { it.contains("N") }
-
-// Change to check only sequences 1, 2, 4, 5:
-assert [0, 1, 3, 4].every { masked_seqs[it].contains("N") }
-assert !masked_seqs[2].contains("N")  // Sequence 3 should NOT be masked
-```
-
-### 3. Full Pipeline Test (Optional but Recommended)
-
-Once nf-test passes, run a full pipeline test:
+Test with real data to verify the implementation works end-to-end:
 
 ```bash
 nextflow run main.nf -profile test
 ```
 
-### 4. Performance Validation (Optional)
+### 2. Performance Validation with Large ONT Data (Important)
 
-Test with actual large ONT data to verify memory improvements:
+The goal of this implementation was to eliminate OOM errors with large ONT reads (100kb+). Test with actual large data:
 
 ```bash
-# Monitor memory usage during the run
+# Run with large ONT data and monitor memory
 nextflow run main.nf -profile <your_profile> --input <large_ont_data>
 ```
 
-The goal was to eliminate OOM errors with 100kb+ ONT reads. Verify that:
-- Process completes without memory errors
-- Memory usage is lower than with bbmask.sh
+**Verify:**
+- ✅ Process completes without memory errors
+- ✅ Memory usage is significantly lower than with bbmask.sh
+- ✅ Output quality matches bbmask.sh behavior
 
-## Installation Notes
+### 3. Update Documentation
 
-### If nf-test is not installed:
+Before merging, update project documentation:
+
 ```bash
-curl -fsSL https://code.askimed.com/install/nf-test | bash
+# Update CHANGELOG.md
+# Document the change from bbmask.sh to mask_fastq
+# Note: Fixes memory issues with large ONT reads (issue #323)
+
+# Consider updating any user-facing docs that mention BBTools
 ```
 
-### If binary needs rebuilding:
+### 4. Clean Up (Optional)
+
+You may want to:
+- Remove or archive `HANDOFF_CONTEXT.md` (or keep for reference)
+- Remove `NEXT_STEPS.md` (this file)
+- Remove temporary bbmask output files
+
+### 5. Merge to Main Branch
+
+Once you're satisfied with testing:
+
+```bash
+# Create PR or merge directly
+git checkout main
+git merge claude/review-mike-issue323-011CUw8zmFc8fvpWUpyYjghu
+git push origin main
+```
+
+## Installation Notes for Future Users
+
+### Building the binary:
 ```bash
 cd modules/local/maskRead/mask_fastq
 cargo build --release
 ```
 
-## Decision Point 🤔
+The binary will be at: `modules/local/maskRead/mask_fastq/target/release/mask_fastq`
 
-After running the tests, you need to decide:
+**Note:** The `target/` directory is gitignored, so users must build locally.
 
-1. **If nf-test PASSES**:
-   - Great! Update CHANGELOG.md and prepare for merge
-
-2. **If nf-test FAILS on GCGCGC**:
-   - Compare with bbmask.sh behavior
-   - Either fix the algorithm OR update test expectations
-   - Re-run nf-test to confirm
-
-3. **If other issues arise**:
-   - Check HANDOFF_CONTEXT.md for troubleshooting
-   - Review the Rust implementation in `modules/local/maskRead/mask_fastq/src/main.rs`
-
-## Questions?
+## Technical Details
 
 See `HANDOFF_CONTEXT.md` for:
 - Detailed implementation notes
-- Algorithm comparison with bbmask.sh
+- Canonical k-mer algorithm explanation
+- Comparison with bbmask.sh
 - Troubleshooting guidance
-- Technical details
 
 ## Summary
 
-**You need to run:** `nf-test test tests/modules/local/maskRead/main.nf.test`
+**Status:** ✅ All tests passing, ready for merge
+**Branch:** `claude/review-mike-issue323-011CUw8zmFc8fvpWUpyYjghu`
+**Tests:** 8/8 Rust unit tests + 2/2 nf-tests = 100% passing
 
-**You need to investigate:** Why GCGCGC isn't being masked (compare with bbmask.sh)
-
-**You need to decide:** Fix algorithm or update test expectations
-
-Everything else is ready to go! 🚀
+Next: Test with real large ONT data to verify memory improvements! 🚀
