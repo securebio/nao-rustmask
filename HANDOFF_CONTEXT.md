@@ -1,12 +1,19 @@
 # Handoff Context: mask_fastq Rust Utility Implementation
 
-**Date:** 2025-10-07
-**Branch:** mike-issue323-test
+**Date:** 2025-10-07 (Updated: 2025-11-08)
+**Branch:** claude/review-mike-issue323-011CUw8zmFc8fvpWUpyYjghu
 **Issue:** #323 - MASK_FASTQ_READS process memory usage optimization
 
 ## Summary
 
 Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory issues caused by bbmask.sh loading entire FASTQ files into Java heap memory. This was causing OOM errors with large ONT read files.
+
+### Update 2025-11-08
+- Binary built successfully (793KB)
+- All 5 Rust unit tests passing
+- Manual testing completed - masking works correctly for pure low-complexity sequences
+- **Issue discovered:** GCGCGC alternating pattern not masked (entropy 1.0 > threshold 0.55)
+- This may cause nf-test failure - needs investigation (see below)
 
 ## What Was Completed
 
@@ -54,6 +61,28 @@ nf-test test tests/modules/local/maskRead/main.nf.test
 - Input and output should have same read IDs (16 reads)
 - **First 5 sequences should contain 'N' (masked)**
 - **Remaining 11 sequences should NOT be masked** (identical to input)
+
+**⚠️ POTENTIAL TEST ISSUE DISCOVERED:**
+
+During verification (2025-11-08), it was found that **sequence 3** (GCGCGC repeating pattern) is **NOT being masked** by the current implementation. This may cause the nf-test to fail.
+
+**Analysis:**
+- Sequences 1, 2, 4, 5: All A's or T's → Entropy ≈ 0.0 → **MASKED** ✓
+- Sequence 3: GCGCGC alternating → Entropy ≈ 1.0 → **NOT MASKED** ✗
+
+With k=5, the GCGCGC pattern produces two 5-mers (GCGCG and CGCGC) that alternate evenly, resulting in Shannon entropy of ~1.0, which is well above the 0.55 threshold.
+
+**This needs investigation before nf-test will pass:**
+1. Run bbmask.sh on the same test data to see if it masks GCGCGC
+2. If bbmask DOES mask it, investigate why (different algorithm?)
+3. Either fix the mask_fastq algorithm OR update test expectations
+
+**To compare with bbmask.sh:**
+```bash
+bbmask.sh in=test-data/toy-data/test-random-low-complexity.fastq \
+  out=bbmask_output.fastq.gz entropy=0.55 k=5 window=25
+zcat bbmask_output.fastq.gz | grep -A 3 "^@B1 1"
+```
 
 #### Test 2: "Should run correctly on empty FASTQ data"
 - Process should succeed
@@ -121,7 +150,7 @@ cd modules/local/maskRead/mask_fastq
 cargo build --release
 ```
 
-Note: The binary is already compiled and committed to the repo.
+Note: The binary has been compiled and is available at the path above (793KB). The `target/` directory is gitignored, so you'll need to rebuild if checking out on a new machine.
 
 ### 4. nf-test Installation
 If nf-test is not available, install it:
