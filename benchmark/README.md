@@ -2,9 +2,46 @@
 
 This directory contains scripts to benchmark the performance and memory usage of the new `mask_fastq` Rust utility compared to the original `bbmask.sh` from BBTools.
 
+## ⚠️ Memory Safety Warning
+
+**bbmask.sh can use LOTS of memory** (that's the bug we're fixing!). Before running benchmarks:
+
+### 1. Check your available memory:
+```bash
+./check_memory.sh
+```
+
+### 2. Use the SAFE benchmark script (recommended):
+```bash
+./run_safe_benchmarks.sh
+```
+
+This script:
+- Limits bbmask.sh Java heap size (default: 4GB)
+- Checks available memory before starting
+- Runs tests incrementally with user confirmation
+- Reduces dataset sizes for safety
+
+### 3. Set memory limits manually (advanced):
+```bash
+# Limit bbmask to 4GB (adjust based on your instance)
+export MAX_BBMASK_MEMORY_GB=4
+
+# Then run benchmarks
+./run_safe_benchmarks.sh
+```
+
 ## Quick Start
 
-### Run all benchmarks automatically:
+### Run SAFE benchmarks (recommended):
+
+```bash
+cd benchmark
+./check_memory.sh              # Check your system first
+./run_safe_benchmarks.sh       # Run with safety limits
+```
+
+### Run all benchmarks (USE WITH CAUTION):
 
 ```bash
 cd benchmark
@@ -82,12 +119,82 @@ Options:
 
 ### 3. `run_all_benchmarks.sh`
 
-Runs comprehensive benchmarks across multiple scenarios.
+Runs comprehensive benchmarks across multiple scenarios. **⚠️ NO MEMORY LIMITS - can consume all memory!**
 
 **Usage:**
 ```bash
-./run_all_benchmarks.sh
+./run_all_benchmarks.sh  # Use with caution!
 ```
+
+### 4. `run_safe_benchmarks.sh` (RECOMMENDED)
+
+Safe version with memory limits and incremental testing.
+
+**Usage:**
+```bash
+# Use system defaults (4GB for bbmask)
+./run_safe_benchmarks.sh
+
+# Or set custom limit based on your instance
+export MAX_BBMASK_MEMORY_GB=2  # For smaller instances
+./run_safe_benchmarks.sh
+```
+
+### 5. `check_memory.sh`
+
+Quick check of available memory and recommendations.
+
+**Usage:**
+```bash
+./check_memory.sh
+```
+
+## Memory Limits & Safety
+
+### Understanding Memory Usage
+
+**bbmask.sh (Java/BBTools):**
+- Loads entire reads into memory
+- For 1000 reads × 100Kbp each = ~100MB of raw data
+- Java overhead can multiply this by 10-100x
+- Result: Can use **10-20 GB** for large ONT reads
+
+**mask_fastq (Rust):**
+- Streams reads one at a time
+- Memory usage = O(longest single read)
+- For 100Kbp read: ~**5 MB**
+- Constant memory regardless of file size
+
+### Setting Memory Limits
+
+#### Check your system:
+```bash
+./check_memory.sh
+```
+
+#### Set bbmask memory limit:
+```bash
+# For instances with < 8GB total RAM
+export MAX_BBMASK_MEMORY_GB=2
+
+# For instances with 8-16GB total RAM (default)
+export MAX_BBMASK_MEMORY_GB=4
+
+# For instances with 16GB+ total RAM
+export MAX_BBMASK_MEMORY_GB=8
+
+# Then run benchmarks
+./run_safe_benchmarks.sh
+```
+
+### What Happens If bbmask Runs Out of Memory?
+
+**That's actually GOOD!** It proves issue #323:
+- bbmask.sh will fail with Java OutOfMemoryError
+- mask_fastq should still complete successfully
+- This demonstrates that mask_fastq solves the memory problem
+
+The benchmark script will handle this gracefully and show that mask_fastq succeeded where bbmask failed.
 
 ## Understanding the Results
 
