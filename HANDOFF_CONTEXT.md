@@ -8,7 +8,7 @@
 
 Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory issues caused by bbmask.sh loading entire FASTQ files into Java heap memory. This was causing OOM errors with large ONT read files.
 
-### Update 2025-11-08
+### Update 2025-11-08 (Part 1: Canonical K-mers)
 - Binary built successfully (793KB)
 - All 8 Rust unit tests passing (including canonical k-mer tests)
 - Manual testing completed - masking works correctly for all low-complexity sequences
@@ -16,6 +16,25 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 - **Root cause:** bbmask.sh uses canonical k-mers (lexicographically smaller of k-mer and reverse complement)
 - **Fix applied:** Modified mask_fastq to use canonical k-mers in entropy calculation
 - **Result:** ✅ All nf-tests passing (2/2)
+
+### Update 2025-11-08 (Part 2: Entropy Normalization)
+- **Issue discovered:** Benchmark tests showed outputs differed between BBMask and mask_fastq on synthetic data
+- **Symptom:** BBMask masked dinucleotide repeats like CTCTCT, but mask_fastq did not
+- **Investigation:** Examined BBMask source code at github.com/BioInfoTools/BBMap
+- **Root cause:** BBMask normalizes entropy to [0,1] range by dividing by maximum possible entropy
+- **Fix applied:** Modified shannon_entropy() to normalize: `entropy / (k * log2(4)) = entropy / (k * 2)`
+- **Explanation:**
+  - For CTCTCT with k=5: produces 2 distinct k-mers (CTCTC, TCTCT)
+  - Raw entropy: log2(2) = 1.0 (high!)
+  - Max entropy for k=5: log2(4^5) = 10.0
+  - **Normalized: 1.0 / 10.0 = 0.1 (low!)**
+  - Since 0.1 < 0.55 threshold → masked correctly
+- **Changes:**
+  - Updated shannon_entropy() function signature to accept k parameter
+  - Added normalization calculation: `entropy / (k as f64 * 2.0)`
+  - Updated all 3 callers to pass k parameter
+  - Fixed unit tests to expect normalized values
+- **Result:** Awaiting user testing - outputs should now match BBMask exactly
 
 ## What Was Completed
 
@@ -105,11 +124,13 @@ nextflow run main.nf -profile test
 ## Technical Details
 
 ### Algorithm Comparison
-Both bbmask.sh and mask_fastq use Shannon entropy:
+Both bbmask.sh and mask_fastq use Shannon entropy with identical algorithms:
 - **Window size:** 25 bases (default parameter)
-- **Entropy threshold:** 0.55 (default parameter)
+- **Entropy threshold:** 0.55 (default parameter, on [0,1] scale)
 - **K-mer size:** 5 (hardcoded in both)
-- **Calculation:** Same Shannon entropy formula: `-Σ(p_i * log2(p_i))` over k-mer frequencies
+- **K-mer canonicalization:** Both use canonical k-mers (lexicographically smaller of k-mer and reverse complement)
+- **Entropy calculation:** Shannon entropy `-Σ(p_i * log2(p_i))` over k-mer frequencies
+- **Normalization:** Both normalize by dividing by max entropy: `entropy / (k * 2)` to get [0,1] range
 
 ### Key Differences
 | Aspect | bbmask.sh | mask_fastq |
