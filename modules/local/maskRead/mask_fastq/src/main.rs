@@ -37,7 +37,32 @@ fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) ->
     entropy
 }
 
-/// Extract all k-mers from a sequence window
+/// Get reverse complement of a DNA sequence
+fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+    seq.iter()
+        .rev()
+        .map(|&base| match base {
+            b'A' | b'a' => b'T',
+            b'T' | b't' => b'A',
+            b'C' | b'c' => b'G',
+            b'G' | b'g' => b'C',
+            b'N' | b'n' => b'N',
+            _ => base,
+        })
+        .collect()
+}
+
+/// Get canonical k-mer (lexicographically smaller of k-mer and its reverse complement)
+fn canonical_kmer(kmer: &[u8]) -> Vec<u8> {
+    let rc = reverse_complement(kmer);
+    if kmer <= rc.as_slice() {
+        kmer.to_vec()
+    } else {
+        rc
+    }
+}
+
+/// Extract all k-mers from a sequence window (using canonical form)
 fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
     let mut kmer_counts = HashMap::new();
 
@@ -46,10 +71,11 @@ fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
     }
 
     for i in 0..=sequence.len() - k {
-        let kmer = sequence[i..i + k].to_vec();
+        let kmer = &sequence[i..i + k];
         // Only count k-mers with valid bases (ACGTN)
         if kmer.iter().all(|&b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n')) {
-            *kmer_counts.entry(kmer).or_insert(0) += 1;
+            let canonical = canonical_kmer(kmer);
+            *kmer_counts.entry(canonical).or_insert(0) += 1;
         }
     }
 
@@ -170,12 +196,47 @@ mod tests {
     }
 
     #[test]
+    fn test_reverse_complement() {
+        assert_eq!(reverse_complement(b"ACGT"), b"ACGT");
+        assert_eq!(reverse_complement(b"AAAA"), b"TTTT");
+        assert_eq!(reverse_complement(b"GCGCG"), b"CGCGC");
+        assert_eq!(reverse_complement(b"CGCGC"), b"GCGCG");
+    }
+
+    #[test]
+    fn test_canonical_kmer() {
+        // GCGCG and CGCGC should both canonicalize to CGCGC
+        assert_eq!(canonical_kmer(b"GCGCG"), b"CGCGC");
+        assert_eq!(canonical_kmer(b"CGCGC"), b"CGCGC");
+
+        // ACG and CGT are reverse complements
+        assert_eq!(canonical_kmer(b"ACG"), b"ACG");
+        assert_eq!(canonical_kmer(b"CGT"), b"ACG");
+    }
+
+    #[test]
     fn test_get_kmers() {
         let sequence = b"ACGTACGT";
         let kmers = get_kmers(sequence, 3);
 
-        assert_eq!(kmers.get(&vec![b'A', b'C', b'G']).unwrap(), &2);
-        assert_eq!(kmers.get(&vec![b'C', b'G', b'T']).unwrap(), &2);
+        // With canonical k-mers:
+        // ACG and CGT both map to ACG
+        // GTA and TAC both map to GTA
+        assert_eq!(kmers.get(&vec![b'A', b'C', b'G']).unwrap(), &4);
+        assert_eq!(kmers.get(&vec![b'G', b'T', b'A']).unwrap(), &2);
+    }
+
+    #[test]
+    fn test_gcgcgc_is_low_complexity() {
+        // GCGCGC should be masked because canonical k-mers collapse to one
+        let sequence = b"GCGCGCGCGCGCGCGCGCGCGCGCGCGCGC"; // 30 bases
+        let quality = b"JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ";
+
+        let (masked_seq, masked_qual) = mask_sequence(sequence, quality, 25, 0.55, 5);
+
+        // Should be fully masked
+        assert_eq!(masked_seq, b"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNN");
+        assert_eq!(masked_qual, b"##############################");
     }
 
     #[test]
