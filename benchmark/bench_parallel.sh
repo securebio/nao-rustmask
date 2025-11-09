@@ -16,26 +16,30 @@ echo "=============================================="
 echo ""
 
 echo "Original (single-threaded):"
-time (cat "$INPUT" | "$MASK_FASTQ" -w 25 -e 0.55 -k 5 -c 1 > /tmp/bench_original.fastq.gz) 2>&1 | grep "real"
+time cat "$INPUT" | "$MASK_FASTQ" -w 25 -e 0.55 -k 5 -c 1 > /tmp/bench_original.fastq.gz
 
 echo ""
 echo "Parallel - 1 thread:"
-time (cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 1 > /tmp/bench_parallel_1t.fastq.gz) 2>&1 | grep "real"
+time cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 1 > /tmp/bench_parallel_1t.fastq.gz
 
 echo ""
 echo "Parallel - 2 threads:"
-time (cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 2 > /tmp/bench_parallel_2t.fastq.gz) 2>&1 | grep "real"
+time cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 2 > /tmp/bench_parallel_2t.fastq.gz
 
 echo ""
 echo "Parallel - 4 threads:"
-time (cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 4 > /tmp/bench_parallel_4t.fastq.gz) 2>&1 | grep "real"
+time cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 4 > /tmp/bench_parallel_4t.fastq.gz
 
 echo ""
 echo "Parallel - 8 threads:"
-time (cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 8 > /tmp/bench_parallel_8t.fastq.gz) 2>&1 | grep "real"
+time cat "$INPUT" | "$MASK_FASTQ_PARALLEL" -w 25 -e 0.55 -k 5 -c 1 -t 8 > /tmp/bench_parallel_8t.fastq.gz
 
 echo ""
 echo "Verifying outputs match..."
 for file in /tmp/bench_parallel_*.fastq.gz; do
-    diff <(zcat /tmp/bench_original.fastq.gz) <(zcat "$file") >/dev/null && echo "✓ $(basename $file)" || echo "✗ $(basename $file) DIFFERS!"
+    if diff <(zcat /tmp/bench_original.fastq.gz) <(zcat "$file") >/dev/null 2>&1; then
+        echo "✓ $(basename $file)"
+    else
+        echo "✗ $(basename $file) DIFFERS!"
+    fi
 done
