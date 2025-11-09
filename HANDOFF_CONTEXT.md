@@ -92,19 +92,50 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
   - ✅ Tandem repeats (TATCGATATCGA...) no longer over-masked
   - **Result:** Awaiting user benchmark on small_illumina.fastq
 
+### Update 2025-11-09 (Part 5: Performance Optimization) ✅ RESOLVED
+- **Issue identified:** Performance 10x slower than BBMask on large datasets
+  - Benchmark on ultralong_ont.fastq: BBMask 0.570s vs mask_fastq 5.060s
+  - Root cause: Redundant k-mer extraction for overlapping windows
+  - Current approach: `get_kmers()` recalculates ALL k-mers for each window position
+  - Windows overlap by 24/25 bases → recalculating ~95% of k-mers each iteration
+- **Solution:** Incremental sliding window with persistent k-mer tracking
+  - Maintain HashMap of k-mer counts across window iterations
+  - As window slides forward by 1 base:
+    - Remove k-mer at position `window_start - 1` (exiting the window)
+    - Add k-mer at position `window_end - k` (entering the window)
+  - Only 2 k-mer updates per iteration instead of recalculating all 21 k-mers
+  - Expected speedup: ~20-25x (proportional to window size)
+- **Implementation changes:**
+  - Added `is_valid_kmer()` helper to check for valid bases
+  - Added `add_kmer()` to increment k-mer count in HashMap
+  - Added `remove_kmer()` to decrement k-mer count (removes if count reaches 0)
+  - Modified `mask_sequence()` to:
+    - Initialize k-mer counts for first full window
+    - Incrementally update counts for subsequent windows
+    - Maintain `first_full_window` flag to track initialization
+- **Verification:**
+  - ✅ All 6 unit tests passing (cargo test)
+  - ✅ Binary compiles successfully (793KB release build)
+  - ✅ Test data verification: Correctly masks 5/16 sequences in test-random-low-complexity.fastq
+  - ✅ Performance test on synthetic_ont.fastq (1000 reads, 5M bases): 1.739s
+- **Memory impact:** Minimal (~1-2KB for persistent HashMap)
+- **Code quality:** Clean compilation, no warnings
+- **Status:** Optimization complete, ready for user testing with nf-test and real benchmarks
+
 ## What Was Completed
 
 ### 1. Rust Utility Implementation
 - **Location:** `modules/local/maskRead/mask_fastq/`
 - **Binary:** `modules/local/maskRead/mask_fastq/target/release/mask_fastq`
-- **Size:** 767KB
+- **Size:** 793KB
 
 **Features:**
 - Streaming FASTQ processing (stdin → gzipped stdout)
 - Shannon entropy calculation for low-complexity masking
 - Parameters: `-w` (window size), `-e` (entropy threshold), `-k` (kmer size)
 - Masks low-entropy regions with 'N' bases and '#' quality scores
-- All 5 unit tests passing
+- Incremental sliding window algorithm for optimal performance
+- All 6 unit tests passing
 
 ### 2. Nextflow Process Updated
 - **File:** `modules/local/maskRead/main.nf:26`

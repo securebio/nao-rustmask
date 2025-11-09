@@ -69,6 +69,30 @@ fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
     kmer_counts
 }
 
+/// Check if a k-mer contains only valid bases
+fn is_valid_kmer(kmer: &[u8]) -> bool {
+    kmer.iter().all(|&b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n'))
+}
+
+/// Add a k-mer to the counts (used for incremental sliding window)
+fn add_kmer(kmer_counts: &mut HashMap<Vec<u8>, usize>, kmer: &[u8]) {
+    if is_valid_kmer(kmer) {
+        *kmer_counts.entry(kmer.to_vec()).or_insert(0) += 1;
+    }
+}
+
+/// Remove a k-mer from the counts (used for incremental sliding window)
+fn remove_kmer(kmer_counts: &mut HashMap<Vec<u8>, usize>, kmer: &[u8]) {
+    if is_valid_kmer(kmer) {
+        if let Some(count) = kmer_counts.get_mut(&kmer.to_vec()) {
+            *count -= 1;
+            if *count == 0 {
+                kmer_counts.remove(&kmer.to_vec());
+            }
+        }
+    }
+}
+
 /// Mask low-complexity regions in a sequence based on entropy
 /// Matches BBMask behavior: masks entire window ranges when low entropy is detected
 fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_threshold: f64, k: usize) -> (Vec<u8>, Vec<u8>) {
@@ -94,6 +118,11 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
 
     // BBMask-style sliding window: mask entire window range when low entropy detected
     // Slide window forward one position at a time, checking entropy at each position
+    // Use incremental k-mer tracking to avoid recalculating all k-mers for overlapping windows
+
+    let mut kmer_counts: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut first_full_window = true;
+
     for i in 0..seq_len {
         // Window extends from [window_start, window_end)
         // Build window up to position i (inclusive)
@@ -104,17 +133,35 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         };
         let window_end = i + 1;
 
-        // Get the window sequence
-        let window_seq = &sequence[window_start..window_end];
-
         // Only check entropy once window is full (has reached target size)
-        if window_seq.len() < window {
+        if window_end - window_start < window {
             continue;
         }
 
+        if first_full_window {
+            // First full window: initialize k-mer counts from scratch
+            kmer_counts.clear();
+            for j in window_start..=window_end.saturating_sub(k) {
+                add_kmer(&mut kmer_counts, &sequence[j..j + k]);
+            }
+            first_full_window = false;
+        } else {
+            // Subsequent windows slide forward by 1 base
+            // Remove the leftmost k-mer that just exited the window
+            let exiting_kmer_pos = window_start - 1;
+            if exiting_kmer_pos + k <= seq_len {
+                remove_kmer(&mut kmer_counts, &sequence[exiting_kmer_pos..exiting_kmer_pos + k]);
+            }
+
+            // Add the new rightmost k-mer that just entered the window
+            let entering_kmer_pos = window_end - k;
+            if entering_kmer_pos < seq_len && entering_kmer_pos + k <= seq_len {
+                add_kmer(&mut kmer_counts, &sequence[entering_kmer_pos..entering_kmer_pos + k]);
+            }
+        }
+
         // Calculate entropy for this window
-        let kmer_counts = get_kmers(window_seq, k);
-        let total_kmers = if window_seq.len() >= k { window_seq.len() - k + 1 } else { 0 };
+        let total_kmers = if window >= k { window - k + 1 } else { 0 };
         let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
         // If entropy is below threshold, mask the entire window range
