@@ -95,6 +95,7 @@ fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
 }
 
 /// Mask low-complexity regions in a sequence based on entropy
+/// Matches BBMask behavior: masks entire window ranges when low entropy is detected
 fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_threshold: f64, k: usize) -> (Vec<u8>, Vec<u8>) {
     let seq_len = sequence.len();
     let mut masked_seq = sequence.to_vec();
@@ -116,28 +117,38 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         return (masked_seq, masked_qual);
     }
 
-    // For each position, calculate entropy of the surrounding window
+    // BBMask-style sliding window: mask entire window range when low entropy detected
+    // Slide window forward one position at a time, checking entropy at each position
     for i in 0..seq_len {
-        // Determine window boundaries
-        let window_start = if i >= window / 2 {
-            i - window / 2
+        // Window extends from [window_start, window_end)
+        // Build window up to position i (inclusive)
+        let window_start = if i + 1 >= window {
+            i + 1 - window
         } else {
             0
         };
-        let window_end = (i + window / 2 + 1).min(seq_len);
+        let window_end = i + 1;
 
         // Get the window sequence
         let window_seq = &sequence[window_start..window_end];
+
+        // Only check entropy once window is full (has reached target size)
+        if window_seq.len() < window {
+            continue;
+        }
 
         // Calculate entropy for this window
         let kmer_counts = get_kmers(window_seq, k);
         let total_kmers = if window_seq.len() >= k { window_seq.len() - k + 1 } else { 0 };
         let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
-        // Mask if entropy is below threshold
+        // If entropy is below threshold, mask the entire window range
+        // This matches BBMask's behavior of masking complete windows
         if entropy < entropy_threshold {
-            masked_seq[i] = b'N';
-            masked_qual[i] = b'#';
+            for pos in window_start..window_end {
+                masked_seq[pos] = b'N';
+                masked_qual[pos] = b'#';
+            }
         }
     }
 
