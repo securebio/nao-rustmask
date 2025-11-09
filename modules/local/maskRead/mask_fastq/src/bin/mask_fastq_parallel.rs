@@ -1,5 +1,7 @@
 use std::io::{self, BufWriter, Write, IsTerminal};
-use needletail::parse_fastx_stdin;
+use std::fs::File;
+use std::path::Path;
+use needletail::{parse_fastx_stdin, parse_fastx_file};
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
 use rayon::prelude::*;
@@ -9,6 +11,14 @@ use mask_fastq::mask_sequence;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Input FASTQ file (plain or gzipped). If not specified, reads from stdin
+    #[arg(short = 'i', long)]
+    input: Option<String>,
+
+    /// Output FASTQ file. If not specified, writes to stdout (gzipped)
+    #[arg(short = 'o', long)]
+    output: Option<String>,
+
     /// Window size for entropy calculation
     #[arg(short = 'w', long, default_value_t = 25)]
     window: usize,
@@ -75,18 +85,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Recommended range: 1000-10000 for most systems");
     }
 
-    // Check if stdin is a terminal (no piped input)
-    if std::io::stdin().is_terminal() {
-        eprintln!("Error: No input provided. This tool reads FASTQ data from stdin.");
+    // Check if stdin is a terminal and no input file specified
+    if args.input.is_none() && std::io::stdin().is_terminal() {
+        eprintln!("Error: No input provided. Use -i to specify input file or pipe data to stdin.");
         eprintln!();
         eprintln!("Usage:");
+        eprintln!("  mask_fastq_parallel -i input.fastq[.gz] -o output.fastq.gz [OPTIONS]");
         eprintln!("  cat input.fastq[.gz] | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
         eprintln!();
         eprintln!("Note: Input can be plain or gzipped FASTQ (auto-detected)");
         eprintln!();
         eprintln!("Examples:");
+        eprintln!("  mask_fastq_parallel -i reads.fastq.gz -o masked.fastq.gz -w 25 -e 0.55 -k 5 -t 4");
         eprintln!("  cat reads.fastq | mask_fastq_parallel -w 25 -e 0.55 -k 5 -t 4 > masked.fastq.gz");
-        eprintln!("  cat reads.fastq.gz | mask_fastq_parallel -t 8 > masked.fastq.gz  # gzipped input works too");
         eprintln!();
         eprintln!("For full help, use: mask_fastq_parallel --help");
         std::process::exit(1);
@@ -100,13 +111,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap();
     }
 
-    // Create gzip encoder for stdout
-    let stdout = io::stdout();
-    let gz_writer = GzEncoder::new(stdout, Compression::new(args.compression_level));
-    let mut writer = BufWriter::new(gz_writer);
+    // Create reader from file or stdin
+    let mut reader = if let Some(input_path) = &args.input {
+        parse_fastx_file(input_path)?
+    } else {
+        parse_fastx_stdin()?
+    };
 
-    // Parse FASTQ from stdin (handles both plain and gzipped input)
-    let mut reader = parse_fastx_stdin()?;
+    // Create writer to file or stdout
+    let writer: Box<dyn Write> = if let Some(output_path) = &args.output {
+        let output_file = File::create(output_path)?;
+        // Auto-detect if we should gzip based on file extension
+        if output_path.ends_with(".gz") {
+            Box::new(BufWriter::new(GzEncoder::new(output_file, Compression::new(args.compression_level))))
+        } else {
+            Box::new(BufWriter::new(output_file))
+        }
+    } else {
+        // Always gzip stdout
+        let stdout = io::stdout();
+        Box::new(BufWriter::new(GzEncoder::new(stdout, Compression::new(args.compression_level))))
+    };
+
+    let mut writer = writer;
 
     // Process reads in chunks
     let mut chunk: Vec<FastqRecord> = Vec::with_capacity(args.chunk_size);
@@ -140,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Process a chunk of reads in parallel and write results
 fn process_and_write_chunk(
     chunk: &mut Vec<FastqRecord>,
-    writer: &mut BufWriter<GzEncoder<io::Stdout>>,
+    writer: &mut Box<dyn Write>,
     args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Process chunk in parallel
