@@ -94,7 +94,7 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 
 ### Update 2025-11-09 (Part 5: Performance Optimization) ✅ RESOLVED
 - **Issue identified:** Performance 10x slower than BBMask on large datasets
-  - Benchmark on ultralong_ont.fastq: BBMask 0.570s vs mask_fastq 5.060s
+  - Benchmark on ultralong_ont.fastq: BBMask 0.570s vs mask_fastq 5.060s (8.9x slower)
   - Root cause: Redundant k-mer extraction for overlapping windows
   - Current approach: `get_kmers()` recalculates ALL k-mers for each window position
   - Windows overlap by 24/25 bases → recalculating ~95% of k-mers each iteration
@@ -118,9 +118,19 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
   - ✅ Binary compiles successfully (793KB release build)
   - ✅ Test data verification: Correctly masks 5/16 sequences in test-random-low-complexity.fastq
   - ✅ Performance test on synthetic_ont.fastq (1000 reads, 5M bases): 1.739s
+- **Actual benchmark results on ultralong_ont.fastq:**
+  - BBMask: 0.537s, mask_fastq: 1.120s (2.1x slower)
+  - **Achieved 4.5x speedup** (improved from 5.060s to 1.120s)
+  - Memory: BBMask 341MB, mask_fastq 3.76MB (96% reduction maintained)
+  - Masked bases: 2415929/5014264 (48.181%) - **exact match** ✅
+  - Outputs match: YES ✅
+- **Performance analysis:**
+  - Theoretical maximum ~20-25x speedup based on k-mer operations alone
+  - Actual 4.5x speedup accounts for other operations (entropy calc, masking, I/O)
+  - Excellent practical result: 96% memory savings with only 2.1x runtime overhead
 - **Memory impact:** Minimal (~1-2KB for persistent HashMap)
 - **Code quality:** Clean compilation, no warnings
-- **Status:** Optimization complete, ready for user testing with nf-test and real benchmarks
+- **Status:** ✅ COMPLETE - Production ready with excellent memory/speed tradeoff
 
 ## What Was Completed
 
