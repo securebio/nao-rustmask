@@ -237,9 +237,14 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║                      BENCHMARK RESULTS                       ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+# Format runtimes with proper decimal places
+BBMASK_RUNTIME_FMT=$(printf "%.3f" "$BBMASK_RUNTIME" 2>/dev/null || echo "$BBMASK_RUNTIME")
+MASK_FASTQ_RUNTIME_FMT=$(printf "%.3f" "$MASK_FASTQ_RUNTIME" 2>/dev/null || echo "$MASK_FASTQ_RUNTIME")
+
 printf "%-25s %-20s %-20s\n" "Metric" "bbmask.sh" "mask_fastq"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-printf "%-25s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME}s" "${MASK_FASTQ_RUNTIME}s"
+printf "%-25s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME_FMT}s" "${MASK_FASTQ_RUNTIME_FMT}s"
 printf "%-25s %-20s %-20s\n" "Peak Memory (MB)" "${BBMASK_MEMORY_MB}" "${MASK_FASTQ_MEMORY_MB}"
 printf "%-25s %-20s %-20s\n" "Masked bases" "$BBMASK_MASKED" "${MASK_FASTQ_MASKED_BASES}/${MASK_FASTQ_TOTAL_BASES}"
 printf "%-25s %-20s %-20s\n" "Masked percentage" "${BBMASK_MASKED_PCT}%" "${MASK_FASTQ_MASKED_PCT}%"
