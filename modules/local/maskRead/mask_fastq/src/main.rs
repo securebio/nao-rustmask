@@ -49,31 +49,6 @@ fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) ->
     }
 }
 
-/// Get reverse complement of a DNA sequence
-fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    seq.iter()
-        .rev()
-        .map(|&base| match base {
-            b'A' | b'a' => b'T',
-            b'T' | b't' => b'A',
-            b'C' | b'c' => b'G',
-            b'G' | b'g' => b'C',
-            b'N' | b'n' => b'N',
-            _ => base,
-        })
-        .collect()
-}
-
-/// Get canonical k-mer (lexicographically smaller of k-mer and its reverse complement)
-fn canonical_kmer(kmer: &[u8]) -> Vec<u8> {
-    let rc = reverse_complement(kmer);
-    if kmer <= rc.as_slice() {
-        kmer.to_vec()
-    } else {
-        rc
-    }
-}
-
 /// Extract all k-mers from a sequence window (strand-specific, no canonicalization)
 /// Matches BBMask behavior: counts k-mers as they appear in the sequence
 fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
@@ -218,25 +193,6 @@ mod tests {
 
         let entropy = shannon_entropy(&counts, 10);
         assert_eq!(entropy, 0.0); // All same kmer = no entropy (still 0 after normalization)
-    }
-
-    #[test]
-    fn test_reverse_complement() {
-        assert_eq!(reverse_complement(b"ACGT"), b"ACGT");
-        assert_eq!(reverse_complement(b"AAAA"), b"TTTT");
-        assert_eq!(reverse_complement(b"GCGCG"), b"CGCGC");
-        assert_eq!(reverse_complement(b"CGCGC"), b"GCGCG");
-    }
-
-    #[test]
-    fn test_canonical_kmer() {
-        // GCGCG and CGCGC should both canonicalize to CGCGC
-        assert_eq!(canonical_kmer(b"GCGCG"), b"CGCGC");
-        assert_eq!(canonical_kmer(b"CGCGC"), b"CGCGC");
-
-        // ACG and CGT are reverse complements
-        assert_eq!(canonical_kmer(b"ACG"), b"ACG");
-        assert_eq!(canonical_kmer(b"CGT"), b"ACG");
     }
 
     #[test]
