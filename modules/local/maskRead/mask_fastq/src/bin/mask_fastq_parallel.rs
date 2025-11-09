@@ -1,4 +1,4 @@
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Write, IsTerminal};
 use needletail::parse_fastx_stdin;
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
@@ -73,6 +73,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.chunk_size > 100000 {
         eprintln!("Warning: chunk size {} is very large and may use excessive memory", args.chunk_size);
         eprintln!("Recommended range: 1000-10000 for most systems");
+    }
+
+    // Check if stdin is a terminal (no piped input)
+    if std::io::stdin().is_terminal() {
+        eprintln!("Error: No input provided. This tool reads FASTQ data from stdin.");
+        eprintln!();
+        eprintln!("Usage:");
+        eprintln!("  cat input.fastq | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
+        eprintln!("  zcat input.fastq.gz | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
+        eprintln!();
+        eprintln!("Example:");
+        eprintln!("  cat reads.fastq | mask_fastq_parallel -w 25 -e 0.55 -k 5 -t 4 > masked.fastq.gz");
+        eprintln!();
+        eprintln!("For full help, use: mask_fastq_parallel --help");
+        std::process::exit(1);
     }
 
     // Configure thread pool if specified

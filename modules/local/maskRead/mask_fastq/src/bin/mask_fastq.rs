@@ -1,4 +1,4 @@
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Write, IsTerminal};
 use needletail::parse_fastx_stdin;
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
@@ -44,6 +44,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Validate compression level
     if args.compression_level > 9 {
         eprintln!("Error: compression level {} is invalid (must be 0-9)", args.compression_level);
+        std::process::exit(1);
+    }
+
+    // Check if stdin is a terminal (no piped input)
+    if std::io::stdin().is_terminal() {
+        eprintln!("Error: No input provided. This tool reads FASTQ data from stdin.");
+        eprintln!();
+        eprintln!("Usage:");
+        eprintln!("  cat input.fastq | mask_fastq [OPTIONS] > output.fastq.gz");
+        eprintln!("  zcat input.fastq.gz | mask_fastq [OPTIONS] > output.fastq.gz");
+        eprintln!();
+        eprintln!("Example:");
+        eprintln!("  cat reads.fastq | mask_fastq -w 25 -e 0.55 -k 5 > masked.fastq.gz");
+        eprintln!();
+        eprintln!("For full help, use: mask_fastq --help");
         std::process::exit(1);
     }
 
