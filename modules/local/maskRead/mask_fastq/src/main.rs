@@ -19,6 +19,10 @@ struct Args {
     /// K-mer size for entropy calculation (maximum k=8 for optimized u16 encoding)
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
+
+    /// Gzip compression level (0-9, where 0=no compression, 6=default, 9=max compression)
+    #[arg(short = 'c', long, default_value_t = 6)]
+    compression_level: u32,
 }
 
 /// Encode a k-mer into a u16 using 2 bits per base (A=00, C=01, G=10, T=11)
@@ -213,9 +217,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // Validate compression level
+    if args.compression_level > 9 {
+        eprintln!("Error: compression level {} is invalid (must be 0-9)", args.compression_level);
+        std::process::exit(1);
+    }
+
     // Create gzip encoder for stdout
     let stdout = io::stdout();
-    let gz_writer = GzEncoder::new(stdout, Compression::default());
+    let gz_writer = GzEncoder::new(stdout, Compression::new(args.compression_level));
     let mut writer = BufWriter::new(gz_writer);
 
     // Parse FASTQ from stdin (handles both plain and gzipped input)
