@@ -165,10 +165,27 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
   - ✅ Test data verification: Still correctly masks 5/16 sequences in test-random-low-complexity.fastq
   - ✅ Parameter validation works: k=9 rejected with helpful error message
   - ✅ Synthetic benchmark: 1.647s (was 1.739s with Vec<u8> → 5% improvement on small data)
-- **Status:** ✅ COMPLETE - Awaiting user benchmark on ultralong_ont.fastq for actual speedup measurement
-  - Expected: ~0.65-0.72s (down from 1.120s)
-  - Expected gap vs BBMask: 1.2-1.4x slower
-  - Memory: Still ~3.76MB (96% less than BBMask)
+- **Actual benchmark results on ultralong_ont.fastq:**
+  - BBMask: 0.556s, mask_fastq: 1.000s (1.8x slower)
+  - **Achieved 1.12x speedup** (improved from 1.120s to 1.000s)
+  - Memory: BBMask 339.93MB, mask_fastq 3.77MB (99% reduction maintained)
+  - Masked bases: 2415929/5014264 (48.181%) - **exact match** ✅
+  - Outputs match: YES ✅
+- **Performance analysis:**
+  - Achieved 1.12x speedup vs projected 1.5-1.7x
+  - Indicates HashMap operations were ~30-40% of runtime (not 60-70%)
+  - Other costs: entropy calculation, window masking, I/O, compression
+  - Still excellent improvement: closes gap from 2.1x to 1.8x vs BBMask
+- **Overall optimization results:**
+  - Original implementation: 5.060s
+  - After incremental sliding window: 1.120s (4.5x speedup)
+  - After u16 bit-packing: 1.000s (1.12x additional speedup)
+  - **Total speedup: 5.06x** from original implementation
+  - Final result: 1.8x slower than BBMask, 99% less memory
+- **Status:** ✅ COMPLETE - Excellent production-ready tradeoff
+  - Memory: 99% reduction (3.77MB vs 339.93MB)
+  - Speed: Only 1.8x slower than BBMask (vs 9x slower initially)
+  - Correctness: 100% output match on all datasets
 
 ## What Was Completed
 
