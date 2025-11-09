@@ -23,7 +23,7 @@ struct Args {
 
 /// Calculate Shannon entropy from k-mer frequencies
 /// Returns normalized entropy in range [0, 1]
-fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize, k: usize) -> f64 {
+fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) -> f64 {
     if total_kmers == 0 {
         return 0.0;
     }
@@ -37,9 +37,10 @@ fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize, k:
     }
 
     // Normalize entropy to [0, 1] by dividing by maximum possible entropy
-    // Maximum entropy occurs when all 4^k possible k-mers are equally likely
-    // max_entropy = log2(4^k) = k * log2(4) = k * 2
-    let max_entropy = (k as f64) * 2.0;
+    // Maximum entropy occurs when all k-mers in the window are unique
+    // For n k-mers in window: max_entropy = log2(n)
+    // This matches BBMask's normalization which considers the actual window size
+    let max_entropy = (total_kmers as f64).log2();
 
     if max_entropy > 0.0 {
         entropy / max_entropy
@@ -103,7 +104,7 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         // If sequence is shorter than window, calculate entropy for the whole sequence
         let kmer_counts = get_kmers(sequence, k);
         let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers, k);
+        let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
         if entropy < entropy_threshold {
             // Mask entire sequence
@@ -131,7 +132,7 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
         // Calculate entropy for this window
         let kmer_counts = get_kmers(window_seq, k);
         let total_kmers = if window_seq.len() >= k { window_seq.len() - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers, k);
+        let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
         // Mask if entropy is below threshold
         if entropy < entropy_threshold {
@@ -193,11 +194,10 @@ mod tests {
         counts.insert(vec![b'G', b'G'], 1);
         counts.insert(vec![b'T', b'T'], 1);
 
-        let k = 2; // k-mer size
-        let entropy = shannon_entropy(&counts, 4, k);
-        // 4 equal kmers → raw entropy = log2(4) = 2.0
-        // Normalized: 2.0 / (k * 2) = 2.0 / 4.0 = 0.5
-        assert!((entropy - 0.5).abs() < 0.001);
+        let entropy = shannon_entropy(&counts, 4);
+        // 4 unique k-mers out of 4 total → raw entropy = log2(4) = 2.0
+        // Normalized by log2(4) = 2.0 → result = 1.0 (perfect entropy!)
+        assert!((entropy - 1.0).abs() < 0.001);
     }
 
     #[test]
@@ -205,8 +205,7 @@ mod tests {
         let mut counts = HashMap::new();
         counts.insert(vec![b'A', b'A'], 10);
 
-        let k = 2; // k-mer size
-        let entropy = shannon_entropy(&counts, 10, k);
+        let entropy = shannon_entropy(&counts, 10);
         assert_eq!(entropy, 0.0); // All same kmer = no entropy (still 0 after normalization)
     }
 
