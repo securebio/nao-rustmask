@@ -148,6 +148,16 @@ fi
 # Extract bbmask stats
 BBMASK_RUNTIME=$(grep "Total Time:" "$BBMASK_LOG" | awk '{print $3}' || echo "unknown")
 BBMASK_MASKED=$(grep "Total Bases Masked:" "$BBMASK_LOG" | awk '{print $4}' || echo "unknown")
+
+# Calculate BBMask masked percentage
+if [[ "$BBMASK_MASKED" != "unknown" && "$BBMASK_MASKED" == *"/"* ]]; then
+    BBMASK_MASKED_BASES=$(echo "$BBMASK_MASKED" | cut -d'/' -f1)
+    BBMASK_TOTAL_BASES=$(echo "$BBMASK_MASKED" | cut -d'/' -f2)
+    BBMASK_MASKED_PCT=$(echo "scale=3; $BBMASK_MASKED_BASES * 100 / $BBMASK_TOTAL_BASES" | bc)
+else
+    BBMASK_MASKED_PCT="-"
+fi
+
 if [[ "$TIME_CMD" == "/usr/bin/time" ]]; then
     BBMASK_MEMORY=$(grep "Maximum resident set size" "$BBMASK_TIME" | awk '{print $6}' || echo "unknown")
     BBMASK_MEMORY_MB=$(echo "scale=2; $BBMASK_MEMORY / 1024" | bc)
@@ -174,7 +184,20 @@ fi
 
 # Extract mask_fastq stats
 if [[ "$TIME_CMD" == "/usr/bin/time" ]]; then
-    MASK_FASTQ_RUNTIME=$(grep "Elapsed (wall clock)" "$MASK_FASTQ_TIME" | awk '{print $8}')
+    MASK_FASTQ_RUNTIME_RAW=$(grep "Elapsed (wall clock)" "$MASK_FASTQ_TIME" | awk '{print $8}')
+    # Convert h:mm:ss or m:ss format to seconds
+    if [[ "$MASK_FASTQ_RUNTIME_RAW" == *":"*":"* ]]; then
+        # Format: h:mm:ss
+        IFS=':' read -r hours minutes seconds <<< "$MASK_FASTQ_RUNTIME_RAW"
+        MASK_FASTQ_RUNTIME=$(echo "$hours * 3600 + $minutes * 60 + $seconds" | bc)
+    elif [[ "$MASK_FASTQ_RUNTIME_RAW" == *":"* ]]; then
+        # Format: m:ss or mm:ss
+        IFS=':' read -r minutes seconds <<< "$MASK_FASTQ_RUNTIME_RAW"
+        MASK_FASTQ_RUNTIME=$(echo "$minutes * 60 + $seconds" | bc)
+    else
+        # Already in seconds
+        MASK_FASTQ_RUNTIME="$MASK_FASTQ_RUNTIME_RAW"
+    fi
     MASK_FASTQ_MEMORY=$(grep "Maximum resident set size" "$MASK_FASTQ_TIME" | awk '{print $6}')
     MASK_FASTQ_MEMORY_MB=$(echo "scale=2; $MASK_FASTQ_MEMORY / 1024" | bc)
 else
@@ -216,20 +239,19 @@ echo -e "${BLUE}╚════════════════════�
 echo ""
 printf "%-25s %-20s %-20s\n" "Metric" "bbmask.sh" "mask_fastq"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-printf "%-25s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME}s" "${MASK_FASTQ_RUNTIME}"
+printf "%-25s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME}s" "${MASK_FASTQ_RUNTIME}s"
 printf "%-25s %-20s %-20s\n" "Peak Memory (MB)" "${BBMASK_MEMORY_MB}" "${MASK_FASTQ_MEMORY_MB}"
 printf "%-25s %-20s %-20s\n" "Masked bases" "$BBMASK_MASKED" "${MASK_FASTQ_MASKED_BASES}/${MASK_FASTQ_TOTAL_BASES}"
-printf "%-25s %-20s %-20s\n" "Masked percentage" "-" "${MASK_FASTQ_MASKED_PCT}%"
+printf "%-25s %-20s %-20s\n" "Masked percentage" "${BBMASK_MASKED_PCT}%" "${MASK_FASTQ_MASKED_PCT}%"
 printf "%-25s %-20s\n" "Outputs match" "$OUTPUTS_MATCH"
 echo ""
 
 # Calculate speedup
-if [[ "$BBMASK_RUNTIME" != "unknown" && "$MASK_FASTQ_RUNTIME" != *":"* ]]; then
-    # Convert time to seconds if needed
+if [[ "$BBMASK_RUNTIME" != "unknown" && "$MASK_FASTQ_RUNTIME" != "unknown" ]]; then
     BBMASK_SEC=$(echo "$BBMASK_RUNTIME" | bc)
-    MASK_FASTQ_SEC=$(echo "$MASK_FASTQ_RUNTIME" | sed 's/[^0-9.]//g' | head -c 10)
+    MASK_FASTQ_SEC=$(echo "$MASK_FASTQ_RUNTIME" | bc)
 
-    if [[ -n "$MASK_FASTQ_SEC" && $(echo "$MASK_FASTQ_SEC > 0" | bc) -eq 1 ]]; then
+    if [[ $(echo "$MASK_FASTQ_SEC > 0" | bc) -eq 1 ]]; then
         SPEEDUP=$(echo "scale=2; $BBMASK_SEC / $MASK_FASTQ_SEC" | bc)
         echo -e "${GREEN}Speedup: ${SPEEDUP}x faster${NC}"
     fi
