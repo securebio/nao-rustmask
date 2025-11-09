@@ -8,14 +8,14 @@
 
 Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory issues caused by bbmask.sh loading entire FASTQ files into Java heap memory. This was causing OOM errors with large ONT read files.
 
-### Update 2025-11-08 (Part 1: Canonical K-mers)
+### Update 2025-11-08 (Part 1: Canonical K-mers) ~~INCORRECT - See Part 4~~
 - Binary built successfully (793KB)
 - All 8 Rust unit tests passing (including canonical k-mer tests)
 - Manual testing completed - masking works correctly for all low-complexity sequences
-- **Issue discovered and RESOLVED:** GCGCGC alternating pattern was not masked initially
-- **Root cause:** bbmask.sh uses canonical k-mers (lexicographically smaller of k-mer and reverse complement)
-- **Fix applied:** Modified mask_fastq to use canonical k-mers in entropy calculation
-- **Result:** ✅ All nf-tests passing (2/2)
+- **Issue discovered:** GCGCGC alternating pattern was not masked initially
+- **Incorrect assumption:** bbmask.sh uses canonical k-mers (lexicographically smaller of k-mer and reverse complement)
+- **Fix applied (WRONG):** Modified mask_fastq to use canonical k-mers in entropy calculation
+- **Result:** ✅ nf-tests passed, but this was not the correct fix (see Part 4)
 
 ### Update 2025-11-08 (Part 2: Entropy Normalization) ✅ RESOLVED
 - **Issue discovered:** Benchmark tests showed outputs differed between BBMask and mask_fastq on synthetic data
@@ -64,7 +64,33 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 - **Verification:**
   - ✅ All 8 unit tests passing
   - ✅ Original test data still works correctly
-  - **Result:** Awaiting user benchmark - should now match BBMask exactly on tiny_test.fastq
+  - **Result:** ✅ tiny_test.fastq now matches exactly!
+
+### Update 2025-11-08 (Part 4: Canonical K-mers Were Wrong!) ✅ RESOLVED
+- **Issue discovered:** On `small_illumina.fastq`, mask_fastq over-masked tandem repeats (100%) while BBMask didn't mask them (0%)
+  - Examples: `TATCGATATCGA...` (6bp repeat), `CCGGCATGCCGGCATG...` (8bp repeat)
+  - These have repeat units LONGER than k=5
+- **Investigation:** Examined BBMask.java and EntropyTracker.java source code
+- **Discovery:** **BBMask does NOT use canonical k-mers for entropy calculation!**
+  - K-mers are counted strand-specifically as they appear in the sequence
+  - No reverse complement, no lexicographic ordering
+  - Quote from code analysis: "no evidence of canonical k-mer usage"
+- **Root cause of over-masking:**
+  - `TATCGATATCGA...` has 6 unique k-mers: TATCG, ATCGA, TCGAT, CGATA, GATAT, ATATC
+  - **With canonical k-mers**: Collapse to ~3 unique → low entropy → masked ✗
+  - **Without canonical (correct)**: 6 unique k-mers → higher entropy → NOT masked ✓
+- **But GCGCGC still works without canonical k-mers!**
+  - GCGCGC produces only 2 k-mers: GCGCG (13x), CGCGC (13x)
+  - Entropy = log2(2) / log2(26) ≈ 0.21 < 0.55 → **still masked** ✓
+  - The **window-range masking** (Part 3) was the real fix, not canonical k-mers!
+- **Fix applied:** Removed canonical k-mer usage from get_kmers()
+  - Changed from `canonical_kmer(kmer)` to `kmer.to_vec()`
+  - Updated unit tests to reflect strand-specific counting
+- **Verification:**
+  - ✅ All 8 unit tests passing
+  - ✅ GCGCGC still correctly masked
+  - ✅ Tandem repeats (TATCGATATCGA...) no longer over-masked
+  - **Result:** Awaiting user benchmark on small_illumina.fastq
 
 ## What Was Completed
 
@@ -129,17 +155,22 @@ Compared with bbmask.sh, which DOES mask GCGCGC. Discovered that bbmask uses **c
 - Canonical form: both map to CGCGC (lexicographically smaller)
 - Result: Only 1 unique k-mer → Entropy = 0.0 → **MASKED** ✓
 
-**Implementation:**
-Added canonical k-mer support to mask_fastq:
-- `reverse_complement()` function
-- `canonical_kmer()` function
-- Modified `get_kmers()` to use canonical forms
-- Added comprehensive tests
+**Implementation (Initial - Later Corrected):**
+~~Initially added canonical k-mer support (later discovered to be incorrect):~~
+- ~~`reverse_complement()` function~~
+- ~~`canonical_kmer()` function~~
+- ~~Modified `get_kmers()` to use canonical forms~~
+
+**Actual Fix (Part 3 + Part 4):**
+- Window-range masking was the key fix for GCGCGC
+- Removed canonical k-mer usage (BBMask doesn't use them)
+- K-mers counted strand-specifically
 
 **Verification:**
 - ✅ cargo test: 8/8 tests pass
 - ✅ Manual test: All 5 sequences masked correctly
 - ✅ nf-test: 2/2 tests pass
+- ✅ GCGCGC still masked without canonical k-mers
 
 #### Test 2: "Should run correctly on empty FASTQ data"
 - Process should succeed
@@ -158,7 +189,7 @@ Both bbmask.sh and mask_fastq now use identical algorithms:
 - **Window size:** 25 bases (default parameter)
 - **Entropy threshold:** 0.55 (default parameter, on [0,1] scale)
 - **K-mer size:** 5 (hardcoded in both)
-- **K-mer canonicalization:** Both use canonical k-mers (lexicographically smaller of k-mer and reverse complement)
+- **K-mer counting:** Both count k-mers strand-specifically (NO canonical k-mers/reverse complement)
 - **Entropy calculation:** Shannon entropy `-Σ(p_i * log2(p_i))` over k-mer frequencies
 - **Normalization:** Both normalize by dividing by window-based max entropy: `entropy / log2(n)` where n = number of k-mers in window
   - For 25-base window with k=5: n = 21, so max_entropy = log2(21) ≈ 4.39
