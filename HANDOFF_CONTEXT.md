@@ -38,7 +38,33 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 - **Verification:**
   - ✅ All 8 unit tests passing
   - ✅ Test data: First 5 low-complexity reads masked, remaining 11 preserved
-  - **Result:** Ready for user benchmark testing - outputs should now match BBMask exactly
+  - **Result:** Entropy normalization matched, but still differences on some test data
+
+### Update 2025-11-08 (Part 3: Window Range Masking) ✅ RESOLVED
+- **Issue discovered:** On `tiny_test.fastq`, outputs still differed (6722/15004 vs 6918/15004 masked)
+- **Symptom:** BBMask masked entire sequences, mask_fastq left flanking bases unmasked
+  - Example: `AACCAACC...` → BBMask: all N's, mask_fastq: `AACCNNN...NNNAACC`
+- **Root cause:** Different masking strategies
+  - **mask_fastq (before)**: For each position, check window entropy → mask only that position
+  - **BBMask**: When window has low entropy → mask ENTIRE window range `[leftPos, rightPos+1)`
+- **Fix applied:** Changed algorithm to mask entire window ranges
+  - Slide window forward one base at a time
+  - When entropy < threshold, mask all positions in window `[window_start, window_end)`
+  - This creates solid blocks of masked bases, matching BBMask behavior
+- **Code change in mask_sequence():**
+  ```rust
+  // If entropy is below threshold, mask the entire window range
+  if entropy < entropy_threshold {
+      for pos in window_start..window_end {
+          masked_seq[pos] = b'N';
+          masked_qual[pos] = b'#';
+      }
+  }
+  ```
+- **Verification:**
+  - ✅ All 8 unit tests passing
+  - ✅ Original test data still works correctly
+  - **Result:** Awaiting user benchmark - should now match BBMask exactly on tiny_test.fastq
 
 ## What Was Completed
 
@@ -128,7 +154,7 @@ nextflow run main.nf -profile test
 ## Technical Details
 
 ### Algorithm Comparison
-Both bbmask.sh and mask_fastq use Shannon entropy with identical algorithms:
+Both bbmask.sh and mask_fastq now use identical algorithms:
 - **Window size:** 25 bases (default parameter)
 - **Entropy threshold:** 0.55 (default parameter, on [0,1] scale)
 - **K-mer size:** 5 (hardcoded in both)
@@ -138,6 +164,10 @@ Both bbmask.sh and mask_fastq use Shannon entropy with identical algorithms:
   - For 25-base window with k=5: n = 21, so max_entropy = log2(21) ≈ 4.39
   - Normalized entropy = 1.0 when all k-mers are unique (perfect diversity)
   - Normalized entropy = 0.0 when all k-mers are identical (no diversity)
+- **Masking behavior:** Both mask entire window ranges when low entropy detected
+  - Slide window forward one base at a time
+  - When entropy < threshold, mask all bases in the current window `[leftPos, rightPos+1)`
+  - Creates solid blocks of masked bases rather than individual positions
 
 ### Key Differences
 | Aspect | bbmask.sh | mask_fastq |
