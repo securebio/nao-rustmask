@@ -74,7 +74,8 @@ fn canonical_kmer(kmer: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Extract all k-mers from a sequence window (using canonical form)
+/// Extract all k-mers from a sequence window (strand-specific, no canonicalization)
+/// Matches BBMask behavior: counts k-mers as they appear in the sequence
 fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
     let mut kmer_counts = HashMap::new();
 
@@ -86,8 +87,7 @@ fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
         let kmer = &sequence[i..i + k];
         // Only count k-mers with valid bases (ACGTN)
         if kmer.iter().all(|&b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n')) {
-            let canonical = canonical_kmer(kmer);
-            *kmer_counts.entry(canonical).or_insert(0) += 1;
+            *kmer_counts.entry(kmer.to_vec()).or_insert(0) += 1;
         }
     }
 
@@ -244,16 +244,21 @@ mod tests {
         let sequence = b"ACGTACGT";
         let kmers = get_kmers(sequence, 3);
 
-        // With canonical k-mers:
-        // ACG and CGT both map to ACG
-        // GTA and TAC both map to GTA
-        assert_eq!(kmers.get(&vec![b'A', b'C', b'G']).unwrap(), &4);
-        assert_eq!(kmers.get(&vec![b'G', b'T', b'A']).unwrap(), &2);
+        // Without canonical k-mers (strand-specific):
+        // ACG appears at positions 0 and 4
+        // CGT appears at positions 1 and 5
+        // GTA appears at position 2
+        // TAC appears at position 3
+        assert_eq!(kmers.get(&vec![b'A', b'C', b'G']).unwrap(), &2);
+        assert_eq!(kmers.get(&vec![b'C', b'G', b'T']).unwrap(), &2);
+        assert_eq!(kmers.get(&vec![b'G', b'T', b'A']).unwrap(), &1);
+        assert_eq!(kmers.get(&vec![b'T', b'A', b'C']).unwrap(), &1);
     }
 
     #[test]
     fn test_gcgcgc_is_low_complexity() {
-        // GCGCGC should be masked because canonical k-mers collapse to one
+        // GCGCGC should be masked: only 2 distinct k-mers (GCGCG and CGCGC) in 26 total
+        // Entropy = log2(2) / log2(26) ≈ 0.21 < 0.55 threshold
         let sequence = b"GCGCGCGCGCGCGCGCGCGCGCGCGCGCGC"; // 30 bases
         let quality = b"JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ";
 
