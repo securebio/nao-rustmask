@@ -20,8 +20,8 @@ struct Args {
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
 
-    /// Gzip compression level (0-9, where 0=no compression, 6=default, 9=max compression)
-    #[arg(short = 'c', long, default_value_t = 6)]
+    /// Gzip compression level (0-9, where 0=no compression, 1=fast/default, 9=max compression)
+    #[arg(short = 'c', long, default_value_t = 1)]
     compression_level: u32,
 }
 
