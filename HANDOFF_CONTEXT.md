@@ -132,19 +132,58 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 - **Code quality:** Clean compilation, no warnings
 - **Status:** ✅ COMPLETE - Production ready with excellent memory/speed tradeoff
 
+### Update 2025-11-09 (Part 6: Bit-Packed K-mer Optimization) ✅ RESOLVED
+- **Issue identified:** Still 2.1x slower than BBMask after incremental sliding window
+  - Microbenchmark showed HashMap operations with `Vec<u8>` keys are bottleneck
+  - `Vec<u8>` keys: ~48 bytes/entry, expensive hashing, heap allocations
+  - Benchmark: Vec<u8> = 4948ms vs u16 = 2083ms → **2.38x speedup potential**
+- **Solution:** Bit-pack k-mers into u16 integers
+  - Encoding: 2 bits per base (A=00, C=01, G=10, T=11)
+  - For k=5: 10 bits total, fits in u16 (16 bits available)
+  - Maximum k=8 (uses all 16 bits)
+  - K-mers with N or invalid bases return None (skipped)
+- **Implementation changes:**
+  - Added `encode_kmer()` function: converts &[u8] → Option<u16>
+  - Changed HashMap type: `HashMap<Vec<u8>, usize>` → `HashMap<u16, usize>`
+  - Updated all k-mer functions: shannon_entropy, get_kmers, add_kmer, remove_kmer
+  - Updated all unit tests to use encode_kmer()
+  - Added parameter validation: k must be 1-8 (exits with helpful error if k>8)
+- **Benefits:**
+  - u16 keys are stack-allocated (no heap overhead)
+  - Integer hashing is much faster than byte vector hashing
+  - Smaller HashMap footprint: ~24 bytes/entry (50% reduction)
+  - Better CPU cache locality
+- **Documentation:** Created docs/BITPACKING_ANALYSIS.md
+  - Analyzes remaining 2.1x gap vs BBMask
+  - Compares 3 implementation options (u16, u32, dynamic)
+  - Chose u16 for k≤8 (covers all common use cases)
+  - Projected impact: 1.5-1.7x overall speedup if HashMap ops are 60-70% of runtime
+  - Expected final gap: 1.2-1.4x slower than BBMask
+- **Verification:**
+  - ✅ All 6 unit tests passing (cargo test)
+  - ✅ Binary compiles successfully (release build)
+  - ✅ Test data verification: Still correctly masks 5/16 sequences in test-random-low-complexity.fastq
+  - ✅ Parameter validation works: k=9 rejected with helpful error message
+  - ✅ Synthetic benchmark: 1.647s (was 1.739s with Vec<u8> → 5% improvement on small data)
+- **Status:** ✅ COMPLETE - Awaiting user benchmark on ultralong_ont.fastq for actual speedup measurement
+  - Expected: ~0.65-0.72s (down from 1.120s)
+  - Expected gap vs BBMask: 1.2-1.4x slower
+  - Memory: Still ~3.76MB (96% less than BBMask)
+
 ## What Was Completed
 
 ### 1. Rust Utility Implementation
 - **Location:** `modules/local/maskRead/mask_fastq/`
 - **Binary:** `modules/local/maskRead/mask_fastq/target/release/mask_fastq`
-- **Size:** 793KB
+- **Size:** 800KB
 
 **Features:**
 - Streaming FASTQ processing (stdin → gzipped stdout)
 - Shannon entropy calculation for low-complexity masking
-- Parameters: `-w` (window size), `-e` (entropy threshold), `-k` (kmer size)
+- Parameters: `-w` (window size), `-e` (entropy threshold), `-k` (kmer size, max 8)
 - Masks low-entropy regions with 'N' bases and '#' quality scores
-- Incremental sliding window algorithm for optimal performance
+- Incremental sliding window algorithm with u16 bit-packed k-mers
+- Optimized HashMap operations (2.4x faster than Vec<u8> keys)
 - All 6 unit tests passing
 
 ### 2. Nextflow Process Updated

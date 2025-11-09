@@ -16,14 +16,36 @@ struct Args {
     #[arg(short = 'e', long, default_value_t = 0.55)]
     entropy: f64,
 
-    /// K-mer size for entropy calculation
+    /// K-mer size for entropy calculation (maximum k=8 for optimized u16 encoding)
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
 }
 
+/// Encode a k-mer into a u16 using 2 bits per base (A=00, C=01, G=10, T=11)
+/// Returns None if the k-mer contains N or invalid bases
+/// Maximum k-mer size: 8 bases (16 bits / 2 bits per base)
+fn encode_kmer(bases: &[u8]) -> Option<u16> {
+    if bases.len() > 8 {
+        return None;
+    }
+
+    let mut encoded: u16 = 0;
+    for &base in bases {
+        let bits = match base {
+            b'A' | b'a' => 0b00,
+            b'C' | b'c' => 0b01,
+            b'G' | b'g' => 0b10,
+            b'T' | b't' => 0b11,
+            _ => return None,  // N or invalid base - skip this k-mer
+        };
+        encoded = (encoded << 2) | bits;
+    }
+    Some(encoded)
+}
+
 /// Calculate Shannon entropy from k-mer frequencies
 /// Returns normalized entropy in range [0, 1]
-fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) -> f64 {
+fn shannon_entropy(kmer_counts: &HashMap<u16, usize>, total_kmers: usize) -> f64 {
     if total_kmers == 0 {
         return 0.0;
     }
@@ -51,7 +73,8 @@ fn shannon_entropy(kmer_counts: &HashMap<Vec<u8>, usize>, total_kmers: usize) ->
 
 /// Extract all k-mers from a sequence window (strand-specific, no canonicalization)
 /// Matches BBMask behavior: counts k-mers as they appear in the sequence
-fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
+/// Uses u16 bit-packed encoding for efficient HashMap operations
+fn get_kmers(sequence: &[u8], k: usize) -> HashMap<u16, usize> {
     let mut kmer_counts = HashMap::new();
 
     if sequence.len() < k {
@@ -60,34 +83,31 @@ fn get_kmers(sequence: &[u8], k: usize) -> HashMap<Vec<u8>, usize> {
 
     for i in 0..=sequence.len() - k {
         let kmer = &sequence[i..i + k];
-        // Only count k-mers with valid bases (ACGTN)
-        if kmer.iter().all(|&b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n')) {
-            *kmer_counts.entry(kmer.to_vec()).or_insert(0) += 1;
+        // Encode k-mer as u16; skip if contains N or invalid bases
+        if let Some(encoded) = encode_kmer(kmer) {
+            *kmer_counts.entry(encoded).or_insert(0) += 1;
         }
     }
 
     kmer_counts
 }
 
-/// Check if a k-mer contains only valid bases
-fn is_valid_kmer(kmer: &[u8]) -> bool {
-    kmer.iter().all(|&b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n'))
-}
-
 /// Add a k-mer to the counts (used for incremental sliding window)
-fn add_kmer(kmer_counts: &mut HashMap<Vec<u8>, usize>, kmer: &[u8]) {
-    if is_valid_kmer(kmer) {
-        *kmer_counts.entry(kmer.to_vec()).or_insert(0) += 1;
+/// Uses u16 bit-packed encoding for efficient HashMap operations
+fn add_kmer(kmer_counts: &mut HashMap<u16, usize>, kmer: &[u8]) {
+    if let Some(encoded) = encode_kmer(kmer) {
+        *kmer_counts.entry(encoded).or_insert(0) += 1;
     }
 }
 
 /// Remove a k-mer from the counts (used for incremental sliding window)
-fn remove_kmer(kmer_counts: &mut HashMap<Vec<u8>, usize>, kmer: &[u8]) {
-    if is_valid_kmer(kmer) {
-        if let Some(count) = kmer_counts.get_mut(&kmer.to_vec()) {
+/// Uses u16 bit-packed encoding for efficient HashMap operations
+fn remove_kmer(kmer_counts: &mut HashMap<u16, usize>, kmer: &[u8]) {
+    if let Some(encoded) = encode_kmer(kmer) {
+        if let Some(count) = kmer_counts.get_mut(&encoded) {
             *count -= 1;
             if *count == 0 {
-                kmer_counts.remove(&kmer.to_vec());
+                kmer_counts.remove(&encoded);
             }
         }
     }
@@ -118,9 +138,9 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
 
     // BBMask-style sliding window: mask entire window range when low entropy detected
     // Slide window forward one position at a time, checking entropy at each position
-    // Use incremental k-mer tracking to avoid recalculating all k-mers for overlapping windows
+    // Use incremental k-mer tracking with u16 bit-packed keys for optimal performance
 
-    let mut kmer_counts: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut kmer_counts: HashMap<u16, usize> = HashMap::new();
     let mut first_full_window = true;
 
     for i in 0..seq_len {
@@ -180,6 +200,19 @@ fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thresho
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    // Validate k-mer size (u16 encoding supports up to k=8)
+    if args.kmer > 8 {
+        eprintln!("Error: k-mer size k={} exceeds maximum supported value (k ≤ 8)", args.kmer);
+        eprintln!("The optimized u16 encoding uses 2 bits per base, limiting k to 8 bases (16 bits).");
+        eprintln!("For low-complexity masking, k=3 to k=7 is typically used.");
+        std::process::exit(1);
+    }
+
+    if args.kmer < 1 {
+        eprintln!("Error: k-mer size k={} is too small (k must be at least 1)", args.kmer);
+        std::process::exit(1);
+    }
+
     // Create gzip encoder for stdout
     let stdout = io::stdout();
     let gz_writer = GzEncoder::new(stdout, Compression::default());
@@ -222,10 +255,10 @@ mod tests {
     #[test]
     fn test_shannon_entropy_uniform() {
         let mut counts = HashMap::new();
-        counts.insert(vec![b'A', b'A'], 1);
-        counts.insert(vec![b'C', b'C'], 1);
-        counts.insert(vec![b'G', b'G'], 1);
-        counts.insert(vec![b'T', b'T'], 1);
+        counts.insert(encode_kmer(b"AA").unwrap(), 1);
+        counts.insert(encode_kmer(b"CC").unwrap(), 1);
+        counts.insert(encode_kmer(b"GG").unwrap(), 1);
+        counts.insert(encode_kmer(b"TT").unwrap(), 1);
 
         let entropy = shannon_entropy(&counts, 4);
         // 4 unique k-mers out of 4 total → raw entropy = log2(4) = 2.0
@@ -236,7 +269,7 @@ mod tests {
     #[test]
     fn test_shannon_entropy_low_complexity() {
         let mut counts = HashMap::new();
-        counts.insert(vec![b'A', b'A'], 10);
+        counts.insert(encode_kmer(b"AA").unwrap(), 10);
 
         let entropy = shannon_entropy(&counts, 10);
         assert_eq!(entropy, 0.0); // All same kmer = no entropy (still 0 after normalization)
@@ -252,10 +285,10 @@ mod tests {
         // CGT appears at positions 1 and 5
         // GTA appears at position 2
         // TAC appears at position 3
-        assert_eq!(kmers.get(&vec![b'A', b'C', b'G']).unwrap(), &2);
-        assert_eq!(kmers.get(&vec![b'C', b'G', b'T']).unwrap(), &2);
-        assert_eq!(kmers.get(&vec![b'G', b'T', b'A']).unwrap(), &1);
-        assert_eq!(kmers.get(&vec![b'T', b'A', b'C']).unwrap(), &1);
+        assert_eq!(kmers.get(&encode_kmer(b"ACG").unwrap()).unwrap(), &2);
+        assert_eq!(kmers.get(&encode_kmer(b"CGT").unwrap()).unwrap(), &2);
+        assert_eq!(kmers.get(&encode_kmer(b"GTA").unwrap()).unwrap(), &1);
+        assert_eq!(kmers.get(&encode_kmer(b"TAC").unwrap()).unwrap(), &1);
     }
 
     #[test]
