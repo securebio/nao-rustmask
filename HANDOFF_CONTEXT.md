@@ -17,24 +17,28 @@ Replaced bbmask.sh with a custom Rust utility (`mask_fastq`) to eliminate memory
 - **Fix applied:** Modified mask_fastq to use canonical k-mers in entropy calculation
 - **Result:** ✅ All nf-tests passing (2/2)
 
-### Update 2025-11-08 (Part 2: Entropy Normalization)
+### Update 2025-11-08 (Part 2: Entropy Normalization) ✅ RESOLVED
 - **Issue discovered:** Benchmark tests showed outputs differed between BBMask and mask_fastq on synthetic data
 - **Symptom:** BBMask masked dinucleotide repeats like CTCTCT, but mask_fastq did not
 - **Investigation:** Examined BBMask source code at github.com/BioInfoTools/BBMap
-- **Root cause:** BBMask normalizes entropy to [0,1] range by dividing by maximum possible entropy
-- **Fix applied:** Modified shannon_entropy() to normalize: `entropy / (k * log2(4)) = entropy / (k * 2)`
-- **Explanation:**
-  - For CTCTCT with k=5: produces 2 distinct k-mers (CTCTC, TCTCT)
-  - Raw entropy: log2(2) = 1.0 (high!)
-  - Max entropy for k=5: log2(4^5) = 10.0
-  - **Normalized: 1.0 / 10.0 = 0.1 (low!)**
-  - Since 0.1 < 0.55 threshold → masked correctly
+- **Root cause:** BBMask normalizes entropy to [0,1] range, but we needed to find the correct normalization
+- **Initial attempt (INCORRECT):** Normalized by `log2(4^k) = k * 2`
+  - This was too aggressive - masked ALL sequences including high-complexity ones!
+  - Problem: A 25-base window can only have 21 k-mers max (for k=5)
+  - Even perfectly diverse: entropy = log2(21) ≈ 4.39
+  - Wrong normalization: 4.39 / 10.0 = 0.439 < 0.55 → incorrectly masked
+- **Correct fix:** Normalize by `log2(total_kmers)` where total_kmers = window size - k + 1
+  - This gives entropy = 1.0 when all k-mers in window are unique (perfect diversity)
+  - And entropy = 0.0 when all k-mers are identical (no diversity)
+  - Matches BBMask's window-based normalization approach
 - **Changes:**
-  - Updated shannon_entropy() function signature to accept k parameter
-  - Added normalization calculation: `entropy / (k as f64 * 2.0)`
-  - Updated all 3 callers to pass k parameter
-  - Fixed unit tests to expect normalized values
-- **Result:** Awaiting user testing - outputs should now match BBMask exactly
+  - Modified shannon_entropy() to normalize by `log2(total_kmers)`
+  - Updated unit tests to expect 1.0 for perfectly diverse k-mer distributions
+  - Removed unused k parameter from function signature
+- **Verification:**
+  - ✅ All 8 unit tests passing
+  - ✅ Test data: First 5 low-complexity reads masked, remaining 11 preserved
+  - **Result:** Ready for user benchmark testing - outputs should now match BBMask exactly
 
 ## What Was Completed
 
@@ -130,7 +134,10 @@ Both bbmask.sh and mask_fastq use Shannon entropy with identical algorithms:
 - **K-mer size:** 5 (hardcoded in both)
 - **K-mer canonicalization:** Both use canonical k-mers (lexicographically smaller of k-mer and reverse complement)
 - **Entropy calculation:** Shannon entropy `-Σ(p_i * log2(p_i))` over k-mer frequencies
-- **Normalization:** Both normalize by dividing by max entropy: `entropy / (k * 2)` to get [0,1] range
+- **Normalization:** Both normalize by dividing by window-based max entropy: `entropy / log2(n)` where n = number of k-mers in window
+  - For 25-base window with k=5: n = 21, so max_entropy = log2(21) ≈ 4.39
+  - Normalized entropy = 1.0 when all k-mers are unique (perfect diversity)
+  - Normalized entropy = 0.0 when all k-mers are identical (no diversity)
 
 ### Key Differences
 | Aspect | bbmask.sh | mask_fastq |
