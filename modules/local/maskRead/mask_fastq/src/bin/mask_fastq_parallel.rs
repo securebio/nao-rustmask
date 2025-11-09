@@ -80,11 +80,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Error: No input provided. This tool reads FASTQ data from stdin.");
         eprintln!();
         eprintln!("Usage:");
-        eprintln!("  cat input.fastq | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
-        eprintln!("  zcat input.fastq.gz | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
+        eprintln!("  cat input.fastq[.gz] | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
         eprintln!();
-        eprintln!("Example:");
+        eprintln!("Note: Input can be plain or gzipped FASTQ (auto-detected)");
+        eprintln!();
+        eprintln!("Examples:");
         eprintln!("  cat reads.fastq | mask_fastq_parallel -w 25 -e 0.55 -k 5 -t 4 > masked.fastq.gz");
+        eprintln!("  cat reads.fastq.gz | mask_fastq_parallel -t 8 > masked.fastq.gz  # gzipped input works too");
         eprintln!();
         eprintln!("For full help, use: mask_fastq_parallel --help");
         std::process::exit(1);
