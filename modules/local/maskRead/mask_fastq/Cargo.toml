@@ -15,6 +15,7 @@ path = "src/bin/mask_fastq_parallel.rs"
 [dependencies]
 needletail = "0.5"
 flate2 = "1.0"
+gzp = { version = "0.11", default-features = false, features = ["deflate_rust"] }
 clap = { version = "4.5", features = ["derive", "std", "help", "usage", "error-context"], default-features = false }
 rayon = "1.8"
 

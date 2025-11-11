@@ -1,7 +1,7 @@
 use std::io::{self, BufWriter, Write, IsTerminal};
 use std::fs::File;
 use needletail::{parse_fastx_stdin, parse_fastx_file};
-use flate2::{Compression, write::GzEncoder};
+use gzp::{deflate::Gzip, par::compress::ParCompressBuilder, Compression as GzpCompression};
 use clap::Parser;
 use rayon::prelude::*;
 use mask_fastq::mask_sequence_auto;
@@ -140,7 +140,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if should_compress {
             let level = args.compression_level.unwrap_or(1);  // Default to level 1 for .gz files
-            Box::new(BufWriter::new(GzEncoder::new(output_file, Compression::new(level))))
+            // Use parallel compression with gzp
+            let encoder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level))
+                .from_writer(output_file);
+            Box::new(BufWriter::new(encoder))
         } else {
             Box::new(BufWriter::new(output_file))
         }
@@ -154,7 +158,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if should_compress {
             let level = args.compression_level.unwrap();
             let stdout = io::stdout();
-            Box::new(BufWriter::new(GzEncoder::new(stdout, Compression::new(level))))
+            // Use parallel compression with gzp
+            let encoder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level))
+                .from_writer(stdout);
+            Box::new(BufWriter::new(encoder))
         } else {
             let stdout = io::stdout();
             Box::new(BufWriter::new(stdout))
