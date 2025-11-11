@@ -3,7 +3,7 @@ use std::fs::File;
 use needletail::{parse_fastx_stdin, parse_fastx_file};
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
-use mask_fastq::mask_sequence;
+use mask_fastq::mask_sequence_auto;
 
 /// Mask low-complexity regions in FASTQ reads using entropy calculation
 #[derive(Parser, Debug)]
@@ -135,8 +135,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sequence = rec.seq();
         let quality = rec.qual().unwrap_or(&[]);
 
-        // Mask low-complexity regions
-        let (masked_seq, masked_qual) = mask_sequence(
+        // Mask low-complexity regions using auto-selection (array-based for k<=7, HashMap for k>7)
+        let (masked_seq, masked_qual) = mask_sequence_auto(
             sequence.as_ref(),
             quality,
             args.window,

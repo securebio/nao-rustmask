@@ -4,7 +4,7 @@ use needletail::{parse_fastx_stdin, parse_fastx_file};
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
 use rayon::prelude::*;
-use mask_fastq::mask_sequence;
+use mask_fastq::mask_sequence_auto;
 
 /// Mask low-complexity regions in FASTQ reads using entropy calculation (parallel version)
 #[derive(Parser, Debug)]
@@ -198,11 +198,11 @@ fn process_and_write_chunk(
     writer: &mut Box<dyn Write>,
     args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Process chunk in parallel
+    // Process chunk in parallel using auto-selection (array-based for k<=7, HashMap for k>7)
     let results: Vec<(Vec<u8>, Vec<u8>)> = chunk
         .par_iter()
         .map(|record| {
-            mask_sequence(
+            mask_sequence_auto(
                 &record.seq,
                 &record.qual,
                 args.window,

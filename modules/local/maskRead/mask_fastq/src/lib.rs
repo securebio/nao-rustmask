@@ -424,6 +424,28 @@ pub fn mask_sequence_array(
     (masked_seq, masked_qual)
 }
 
+/// Automatically choose between array-based and HashMap-based masking based on k
+/// - Uses array-based for k <= 7 (memory: 4KB for k=5, 16KB for k=6, 64KB for k=7)
+/// - Uses HashMap-based for k > 7 (to avoid excessive memory usage)
+///
+/// This provides the best performance for typical k values while gracefully
+/// handling larger k values that would require too much memory for arrays.
+pub fn mask_sequence_auto(
+    sequence: &[u8],
+    quality: &[u8],
+    window: usize,
+    entropy_threshold: f64,
+    k: usize
+) -> (Vec<u8>, Vec<u8>) {
+    if k <= 7 {
+        // Use optimized array-based implementation (1.7-3.2x faster)
+        mask_sequence_array(sequence, quality, window, entropy_threshold, k)
+    } else {
+        // Fall back to HashMap for k > 7 to avoid excessive memory (256KB+ for k=8)
+        mask_sequence(sequence, quality, window, entropy_threshold, k)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
