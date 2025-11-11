@@ -304,8 +304,8 @@ impl ArrayEntropyTracker {
     #[inline]
     pub fn entropy(&self) -> f64 {
         let e = self.current_esum * self.entropy_mult;
-        // Avoid negative zero due to floating point errors
-        if e > 0.0 { e } else { 0.0 }
+        // Avoid negative zero due to floating point errors (branchless)
+        e.max(0.0)
     }
 
     /// Clear the tracker for a new sequence
