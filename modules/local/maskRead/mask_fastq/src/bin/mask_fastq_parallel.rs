@@ -1,6 +1,5 @@
 use std::io::{self, BufWriter, Write, IsTerminal};
 use std::fs::File;
-use std::path::Path;
 use needletail::{parse_fastx_stdin, parse_fastx_file};
 use flate2::{Compression, write::GzEncoder};
 use clap::Parser;
@@ -31,9 +30,10 @@ struct Args {
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
 
-    /// Gzip compression level (0-9, where 0=no compression, 1=fast/default, 9=max compression)
-    #[arg(short = 'c', long, default_value_t = 1)]
-    compression_level: u32,
+    /// Gzip compression level (0-9, where 0=no compression, 1=fast, 9=max compression).
+    /// If not specified: stdout is uncompressed, .gz files use level 1 (fast compression).
+    #[arg(short = 'c', long)]
+    compression_level: Option<u32>,
 
     /// Number of reads to process per chunk (controls memory usage)
     #[arg(long, default_value_t = 1000)]
@@ -68,10 +68,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    // Validate compression level
-    if args.compression_level > 9 {
-        eprintln!("Error: compression level {} is invalid (must be 0-9)", args.compression_level);
-        std::process::exit(1);
+    // Validate compression level if specified
+    if let Some(level) = args.compression_level {
+        if level > 9 {
+            eprintln!("Error: compression level {} is invalid (must be 0-9)", level);
+            std::process::exit(1);
+        }
     }
 
     // Validate chunk size
@@ -90,14 +92,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Error: No input provided. Use -i to specify input file or pipe data to stdin.");
         eprintln!();
         eprintln!("Usage:");
-        eprintln!("  mask_fastq_parallel -i input.fastq[.gz] -o output.fastq.gz [OPTIONS]");
-        eprintln!("  cat input.fastq[.gz] | mask_fastq_parallel [OPTIONS] > output.fastq.gz");
+        eprintln!("  mask_fastq_parallel -i input.fastq[.gz] -o output.fastq [OPTIONS]");
+        eprintln!("  cat input.fastq[.gz] | mask_fastq_parallel [OPTIONS] > output.fastq");
         eprintln!();
         eprintln!("Note: Input can be plain or gzipped FASTQ (auto-detected)");
         eprintln!();
+        eprintln!("Compression:");
+        eprintln!("  - stdout: uncompressed by default (use -c 1-9 to compress)");
+        eprintln!("  - .gz files: compressed at level 1 by default (use -c to override)");
+        eprintln!("  - other files: uncompressed (use -c 1-9 to compress)");
+        eprintln!();
         eprintln!("Examples:");
-        eprintln!("  mask_fastq_parallel -i reads.fastq.gz -o masked.fastq.gz -w 25 -e 0.55 -k 5 -t 4");
-        eprintln!("  cat reads.fastq | mask_fastq_parallel -w 25 -e 0.55 -k 5 -t 4 > masked.fastq.gz");
+        eprintln!("  mask_fastq_parallel -i reads.fastq.gz -o masked.fastq -t 4         # uncompressed");
+        eprintln!("  mask_fastq_parallel -i reads.fastq.gz -o masked.fastq.gz -t 4     # compressed (level 1)");
+        eprintln!("  mask_fastq_parallel -i reads.fastq.gz -o masked.fastq.gz -c 6 -t 4  # compressed (level 6)");
+        eprintln!("  cat reads.fastq | mask_fastq_parallel -t 4 > masked.fastq         # uncompressed stdout");
         eprintln!();
         eprintln!("For full help, use: mask_fastq_parallel --help");
         std::process::exit(1);
@@ -121,16 +130,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create writer to file or stdout
     let writer: Box<dyn Write> = if let Some(output_path) = &args.output {
         let output_file = File::create(output_path)?;
-        // Auto-detect if we should gzip based on file extension
-        if output_path.ends_with(".gz") {
-            Box::new(BufWriter::new(GzEncoder::new(output_file, Compression::new(args.compression_level))))
+
+        // Determine if we should compress based on extension and -c flag
+        let should_compress = match args.compression_level {
+            Some(0) => false,  // Explicit -c 0: no compression
+            Some(_) => true,   // Explicit -c 1-9: compress
+            None => output_path.ends_with(".gz"),  // No -c flag: auto-detect from extension
+        };
+
+        if should_compress {
+            let level = args.compression_level.unwrap_or(1);  // Default to level 1 for .gz files
+            Box::new(BufWriter::new(GzEncoder::new(output_file, Compression::new(level))))
         } else {
             Box::new(BufWriter::new(output_file))
         }
     } else {
-        // Always gzip stdout
-        let stdout = io::stdout();
-        Box::new(BufWriter::new(GzEncoder::new(stdout, Compression::new(args.compression_level))))
+        // stdout: compress only if -c flag is specified with value > 0
+        let should_compress = match args.compression_level {
+            Some(0) | None => false,  // No -c or -c 0: uncompressed (NEW default)
+            Some(_) => true,          // -c 1-9: compressed
+        };
+
+        if should_compress {
+            let level = args.compression_level.unwrap();
+            let stdout = io::stdout();
+            Box::new(BufWriter::new(GzEncoder::new(stdout, Compression::new(level))))
+        } else {
+            let stdout = io::stdout();
+            Box::new(BufWriter::new(stdout))
+        }
     };
 
     let mut writer = writer;
