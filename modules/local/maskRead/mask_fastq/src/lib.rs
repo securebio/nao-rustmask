@@ -187,11 +187,7 @@ pub fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thr
 /// - Maintains count-of-counts histogram for O(1) entropy updates
 /// - Precalculates entropy values to avoid log() in hot path
 pub struct ArrayEntropyTracker {
-    k: usize,
     window_kmers: usize,
-    kmer_space: usize,
-
-    // Mutable state
     counts: Vec<u16>,           // K-mer counts (size 4^k)
     count_counts: Vec<u16>,     // Histogram of count frequencies (size window_kmers+2)
     entropy_table: Vec<f64>,    // Precalculated p*log2(p) for each possible count
@@ -235,9 +231,7 @@ impl ArrayEntropyTracker {
         count_counts[0] = window_kmers as u16;
 
         Self {
-            k,
             window_kmers,
-            kmer_space,
             counts: vec![0; kmer_space],
             count_counts,
             entropy_table,
