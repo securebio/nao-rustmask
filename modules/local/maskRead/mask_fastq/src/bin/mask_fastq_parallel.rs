@@ -36,7 +36,7 @@ struct Args {
     compression_level: Option<u32>,
 
     /// Number of reads to process per chunk (controls memory usage)
-    #[arg(long, default_value_t = 1000)]
+    #[arg(short = 's', long, default_value_t = 1000)]
     chunk_size: usize,
 
     /// Number of threads to use (default: auto-detect CPU cores)
