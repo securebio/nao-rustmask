@@ -9,7 +9,6 @@ This project was created to solve memory issues with [BBTools' BBMask program](h
 ### Key Features
 
 - **Identical output** to BBMask's entropy masking
-- **Full BBMask compatibility**: Supports k-mer sizes up to k=15
 - **Streaming architecture** controls memory usage on large files
 - **Parallel processing**: Multi-core support with `mask_fastq_parallel`
 - **Compatible I/O**: Reads and writes plain or gzipped FASTQ files
@@ -45,7 +44,7 @@ cd mask_fastq
 cargo build --release
 ```
 
-The compiled binaries will be in `target/release/`:
+The compiled binaries will be in `mask_fastq/target/release/`:
 - `mask_fastq` - Single-threaded version
 - `mask_fastq_parallel` - Multi-threaded version
 
@@ -71,11 +70,8 @@ mask_fastq -i input.fastq.gz -o output.fastq.gz \
   --entropy 0.6 \
   --kmer 7
 
-# Use larger k-mer for BBMask compatibility
-mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 15
-
-# Force specific method (array is faster for k≤7)
-mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 7 --method array
+# Force specific method (array is default for k≤7)
+mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
 ```
 
 ### Parallel Processing: `mask_fastq_parallel`
@@ -228,18 +224,6 @@ mask_fastq -i input.fastq -o mask_fastq_out.fastq \
 # Verify identical output
 diff bbmask_out.fastq mask_fastq_out.fastq
 # (no output = files are identical)
-```
-
-Full BBMask compatibility includes support for larger k-mer sizes:
-
-```bash
-# BBMask with k=15 (maximum for both tools)
-bbmask.sh in=input.fastq out=bbmask_out.fastq \
-  entropy=0.55 window=31 k=15
-
-# Equivalent mask_fastq command
-mask_fastq -i input.fastq -o mask_fastq_out.fastq \
-  -e 0.55 -w 31 -k 15
 ```
 
 ## Limitations
