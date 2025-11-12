@@ -9,9 +9,11 @@ This project was created to solve memory issues with [BBTools' BBMask program](h
 ### Key Features
 
 - **Identical output** to BBMask's entropy masking
+- **Full BBMask compatibility**: Supports k-mer sizes up to k=15
 - **Streaming architecture** controls memory usage on large files
 - **Parallel processing**: Multi-core support with `mask_fastq_parallel`
 - **Compatible I/O**: Reads and writes plain or gzipped FASTQ files
+- **Flexible method selection**: Choose between array-based (fast) or HashMap (memory-efficient) algorithms
 
 ## What is Low-Complexity Masking?
 
@@ -68,6 +70,12 @@ mask_fastq -i input.fastq.gz -o output.fastq.gz \
   --window 50 \
   --entropy 0.6 \
   --kmer 7
+
+# Use larger k-mer for BBMask compatibility
+mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 15
+
+# Force specific method (array is faster for k≤7)
+mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 7 --method array
 ```
 
 ### Parallel Processing: `mask_fastq_parallel`
@@ -97,7 +105,8 @@ mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz \
 | `--output` | `-o` | stdout | Output FASTQ file |
 | `--window` | `-w` | 25 | Window size for entropy calculation |
 | `--entropy` | `-e` | 0.55 | Entropy threshold (mask if < threshold) |
-| `--kmer` | `-k` | 5 | K-mer size (1-8) |
+| `--kmer` | `-k` | 5 | K-mer size (1-15) |
+| `--method` | `-m` | auto | Method: `auto` (adaptive), `array` (fast), or `hashmap` (memory-efficient) |
 | `--compression-level` | `-c` | auto | Gzip compression level (0-9) |
 
 #### Parallel-Only Options
@@ -162,12 +171,19 @@ This creates contiguous masked regions, matching BBMask behavior.
 - Pre-calculates entropy table
 - O(1) entropy updates (vs O(k) for HashMap)
 - Incremental sliding window with add/remove operations
+- Used automatically for k≤7 (or can be forced with `--method array`)
 
-**U16 K-mer Encoding**:
+**U32 K-mer Encoding**:
 - 2 bits per base (A=00, C=01, G=10, T=11)
-- Fits k ≤ 8 in 16 bits
+- Supports k ≤ 15 (30 bits) for full BBMask compatibility
 - Fast bitwise operations
 - Efficient HashMap/array indexing
+- No performance penalty vs u16 (benchmarked 0-9% faster)
+
+**Adaptive Method Selection** (`--method auto`, default):
+- Uses array-based approach for k≤7 (optimal cache performance)
+- Switches to HashMap for k>7 (memory-efficient for larger k)
+- Can be overridden with `--method array` or `--method hashmap`
 
 ## Benchmarking
 
@@ -214,9 +230,20 @@ diff bbmask_out.fastq mask_fastq_out.fastq
 # (no output = files are identical)
 ```
 
+Full BBMask compatibility includes support for larger k-mer sizes:
+
+```bash
+# BBMask with k=15 (maximum for both tools)
+bbmask.sh in=input.fastq out=bbmask_out.fastq \
+  entropy=0.55 window=31 k=15
+
+# Equivalent mask_fastq command
+mask_fastq -i input.fastq -o mask_fastq_out.fastq \
+  -e 0.55 -w 31 -k 15
+```
+
 ## Limitations
 
-- **K-mer size**: Maximum k=8 (u16 encoding limitation)
 - Currently only works on Fastq files, not Fasta
 
 ## Acknowledgments
