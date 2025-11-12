@@ -3,14 +3,10 @@ name = "mask_fastq"
 version = "0.1.0"
 edition = "2021"
 
-# Define multiple binaries
+# Define binary
 [[bin]]
 name = "mask_fastq"
 path = "src/bin/mask_fastq.rs"
-
-[[bin]]
-name = "mask_fastq_parallel"
-path = "src/bin/mask_fastq_parallel.rs"
 
 [dependencies]
 needletail = "0.5"

@@ -10,13 +10,13 @@ This project was created to solve memory issues with [BBTools' BBMask program](h
 
 - **Identical output** to BBMask's entropy masking
 - **Streaming architecture** controls memory usage on large files
-- **Parallel processing**: Multi-core support with `mask_fastq_parallel`
+- **Parallel processing**: Multi-core support for fast processing
 - **Compatible I/O**: Reads and writes plain or gzipped FASTQ files
 - **Flexible method selection**: Choose between array-based (fast) or HashMap (memory-efficient) algorithms
 
 ## What is Low-Complexity Masking?
 
-Low-complexity regions in DNA sequences (homopolymers, tandem repeats, etc.) can cause false-positive alignments and complicate downstream analysis. These tools identify and mask such regions by:
+Low-complexity regions in DNA sequences (homopolymers, tandem repeats, etc.) can cause false-positive alignments and complicate downstream analysis. This tool identifies and masks such regions by:
 
 1. Computing Shannon entropy for k-mers in sliding windows
 2. Masking windows that fall below an entropy threshold
@@ -44,15 +44,11 @@ cd mask_fastq
 cargo build --release
 ```
 
-The compiled binaries will be in `mask_fastq/target/release/`:
-- `mask_fastq` - Single-threaded version
-- `mask_fastq_parallel` - Multi-threaded version
+The compiled binary will be in `mask_fastq/target/release/mask_fastq`
 
 ## Usage
 
-### Basic Usage: `mask_fastq`
-
-Single-threaded version for moderate-sized files:
+### Basic Usage
 
 ```bash
 # Read from file, write to file
@@ -72,28 +68,20 @@ mask_fastq -i input.fastq.gz -o output.fastq.gz \
 
 # Force specific method (array is default for k≤7)
 mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
-```
 
-### Parallel Processing: `mask_fastq_parallel`
-
-Multi-threaded version for large files:
-
-```bash
-# Use all available CPU cores
-mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz
+# Use all available CPU cores (default)
+mask_fastq -i large.fastq.gz -o masked.fastq.gz
 
 # Specify thread count
-mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz --threads 8
+mask_fastq -i large.fastq.gz -o masked.fastq.gz --threads 8
 
 # Adjust chunk size for memory/performance tradeoff
-mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz \
+mask_fastq -i large.fastq.gz -o masked.fastq.gz \
   --chunk-size 5000 \
   --threads 8
 ```
 
 ### Command-Line Options
-
-#### Common Options (both tools)
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
@@ -104,17 +92,12 @@ mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz \
 | `--kmer` | `-k` | 5 | K-mer size (1-15) |
 | `--method` | `-m` | auto | Method: `auto` (adaptive), `array` (fast), or `hashmap` (memory-efficient) |
 | `--compression-level` | `-c` | auto | Gzip compression level (0-9) |
-
-#### Parallel-Only Options
-
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
 | `--threads` | `-t` | auto | Number of threads to use |
 | `--chunk-size` | `-s` | 1000 | Reads per chunk (affects memory usage) |
 
 ### Compression Behavior
 
-The tools automatically handle compression based on context:
+The tool automatically handles compression based on context:
 
 - **Input**: Auto-detects plain or gzipped FASTQ
 - **Output to stdout**: Uncompressed by default (use `-c` to compress)

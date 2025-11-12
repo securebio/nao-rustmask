@@ -1,5 +1,5 @@
 #!/bin/bash
-# Benchmark comparison between bbmask.sh, mask_fastq, and mask_fastq_parallel
+# Benchmark comparison between bbmask.sh and mask_fastq
 #
 # Usage:
 #   ./benchmark_vs_bbmask.sh test.fastq
@@ -74,22 +74,13 @@ if [[ ! -f "$INPUT_FASTQ" ]]; then
     exit 1
 fi
 
-# Find the mask_fastq binaries
+# Find the mask_fastq binary
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 MASK_FASTQ="$PROJECT_DIR/mask_fastq/target/release/mask_fastq"
-MASK_FASTQ_PARALLEL="$PROJECT_DIR/mask_fastq/target/release/mask_fastq_parallel"
 
 if [[ ! -f "$MASK_FASTQ" ]]; then
     echo -e "${RED}Error: mask_fastq binary not found at: $MASK_FASTQ${NC}" >&2
-    echo "Please build it first:" >&2
-    echo "  cd $PROJECT_DIR/mask_fastq" >&2
-    echo "  cargo build --release" >&2
-    exit 1
-fi
-
-if [[ ! -f "$MASK_FASTQ_PARALLEL" ]]; then
-    echo -e "${RED}Error: mask_fastq_parallel binary not found at: $MASK_FASTQ_PARALLEL${NC}" >&2
     echo "Please build it first:" >&2
     echo "  cd $PROJECT_DIR/mask_fastq" >&2
     echo "  cargo build --release" >&2
@@ -140,14 +131,14 @@ INPUT_SIZE=$(du -h "$INPUT_FASTQ" | cut -f1)
 NUM_READS=$(grep -c "^@" "$INPUT_FASTQ" || echo "unknown")
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║        Benchmark: bbmask.sh vs mask_fastq (all versions)    ║${NC}"
+echo -e "${BLUE}║           Benchmark: bbmask.sh vs mask_fastq                 ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${GREEN}Input file:${NC} $INPUT_FASTQ"
 echo -e "${GREEN}File size:${NC} $INPUT_SIZE"
 echo -e "${GREEN}Num reads:${NC} $NUM_READS"
 echo -e "${GREEN}Parameters:${NC} window=$WINDOW, entropy=$ENTROPY, ke=$KMER"
-echo -e "${GREEN}Parallel threads:${NC} $THREADS"
+echo -e "${GREEN}Threads:${NC} $THREADS"
 echo -e "${GREEN}BBMask mode:${NC} entropy-only (maskrepeats=f, masklowentropy=t)"
 echo ""
 
@@ -205,18 +196,18 @@ fi
 echo -e "${GREEN}✓ bbmask.sh completed${NC}"
 echo ""
 
-# Benchmark mask_fastq (single-threaded)
+# Benchmark mask_fastq
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}Running mask_fastq (single-threaded)...${NC}"
+echo -e "${YELLOW}Running mask_fastq ($THREADS threads)...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 MASK_FASTQ_OUT="$OUTPUT_DIR/mask_fastq_output.fastq.gz"
 MASK_FASTQ_TIME="$OUTPUT_DIR/mask_fastq_time.txt"
 
 if [[ "$HAS_MEMORY" -eq 1 ]]; then
-    $TIME_CMD sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ' -w $WINDOW -e $ENTROPY -k $KMER -c 1 > '$MASK_FASTQ_OUT'" 2>&1 | tee "$MASK_FASTQ_TIME"
+    $TIME_CMD sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$MASK_FASTQ_OUT'" 2>&1 | tee "$MASK_FASTQ_TIME"
 else
-    { time sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ' -w $WINDOW -e $ENTROPY -k $KMER -c 1 > '$MASK_FASTQ_OUT'" ; } 2> "$MASK_FASTQ_TIME"
+    { time sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$MASK_FASTQ_OUT'" ; } 2> "$MASK_FASTQ_TIME"
 fi
 
 # Extract mask_fastq stats
@@ -247,48 +238,6 @@ MASK_FASTQ_MASKED_PCT=$(echo "scale=3; $MASK_FASTQ_MASKED_BASES * 100 / $MASK_FA
 echo -e "${GREEN}✓ mask_fastq completed${NC}"
 echo ""
 
-# Benchmark mask_fastq_parallel
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}Running mask_fastq_parallel ($THREADS threads)...${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-MASK_FASTQ_PARALLEL_OUT="$OUTPUT_DIR/mask_fastq_parallel_output.fastq.gz"
-MASK_FASTQ_PARALLEL_TIME="$OUTPUT_DIR/mask_fastq_parallel_time.txt"
-
-if [[ "$HAS_MEMORY" -eq 1 ]]; then
-    $TIME_CMD sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ_PARALLEL' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$MASK_FASTQ_PARALLEL_OUT'" 2>&1 | tee "$MASK_FASTQ_PARALLEL_TIME"
-else
-    { time sh -c "cat '$INPUT_FASTQ' | '$MASK_FASTQ_PARALLEL' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$MASK_FASTQ_PARALLEL_OUT'" ; } 2> "$MASK_FASTQ_PARALLEL_TIME"
-fi
-
-# Extract mask_fastq_parallel stats
-if [[ "$HAS_MEMORY" -eq 1 ]]; then
-    MASK_FASTQ_PARALLEL_RUNTIME_RAW=$(grep "Elapsed (wall clock)" "$MASK_FASTQ_PARALLEL_TIME" | awk '{print $8}')
-    # Convert h:mm:ss or m:ss format to seconds
-    if [[ "$MASK_FASTQ_PARALLEL_RUNTIME_RAW" == *":"*":"* ]]; then
-        IFS=':' read -r hours minutes seconds <<< "$MASK_FASTQ_PARALLEL_RUNTIME_RAW"
-        MASK_FASTQ_PARALLEL_RUNTIME=$(echo "$hours * 3600 + $minutes * 60 + $seconds" | bc)
-    elif [[ "$MASK_FASTQ_PARALLEL_RUNTIME_RAW" == *":"* ]]; then
-        IFS=':' read -r minutes seconds <<< "$MASK_FASTQ_PARALLEL_RUNTIME_RAW"
-        MASK_FASTQ_PARALLEL_RUNTIME=$(echo "$minutes * 60 + $seconds" | bc)
-    else
-        MASK_FASTQ_PARALLEL_RUNTIME="$MASK_FASTQ_PARALLEL_RUNTIME_RAW"
-    fi
-    MASK_FASTQ_PARALLEL_MEMORY=$(grep "Maximum resident set size" "$MASK_FASTQ_PARALLEL_TIME" | awk '{print $6}')
-    MASK_FASTQ_PARALLEL_MEMORY_MB=$(echo "scale=2; $MASK_FASTQ_PARALLEL_MEMORY / 1024" | bc)
-else
-    MASK_FASTQ_PARALLEL_RUNTIME=$(grep "real" "$MASK_FASTQ_PARALLEL_TIME" | awk '{print $2}')
-    MASK_FASTQ_PARALLEL_MEMORY_MB="unavailable"
-fi
-
-# Count masked bases in mask_fastq_parallel output
-MASK_FASTQ_PARALLEL_TOTAL_BASES=$($ZCAT_CMD "$MASK_FASTQ_PARALLEL_OUT" | awk 'NR%4==2 {sum+=length($0)} END {print sum}')
-MASK_FASTQ_PARALLEL_MASKED_BASES=$($ZCAT_CMD "$MASK_FASTQ_PARALLEL_OUT" | awk 'NR%4==2 {gsub(/[^N]/,"",$0); sum+=length($0)} END {print sum}')
-MASK_FASTQ_PARALLEL_MASKED_PCT=$(echo "scale=3; $MASK_FASTQ_PARALLEL_MASKED_BASES * 100 / $MASK_FASTQ_PARALLEL_TOTAL_BASES" | bc)
-
-echo -e "${GREEN}✓ mask_fastq_parallel completed${NC}"
-echo ""
-
 # Compare outputs
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${YELLOW}Comparing outputs...${NC}"
@@ -297,28 +246,13 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 # Extract sequences only for comparison
 $ZCAT_CMD "$BBMASK_OUT" | awk 'NR%4==2' | sort > "$OUTPUT_DIR/bbmask_seqs.txt"
 $ZCAT_CMD "$MASK_FASTQ_OUT" | awk 'NR%4==2' | sort > "$OUTPUT_DIR/mask_fastq_seqs.txt"
-$ZCAT_CMD "$MASK_FASTQ_PARALLEL_OUT" | awk 'NR%4==2' | sort > "$OUTPUT_DIR/mask_fastq_parallel_seqs.txt"
 
-# Compare all three
+# Compare outputs
 OUTPUTS_MATCH="YES"
 if diff -q "$OUTPUT_DIR/bbmask_seqs.txt" "$OUTPUT_DIR/mask_fastq_seqs.txt" > /dev/null; then
     echo -e "${GREEN}✓ BBMask vs mask_fastq: IDENTICAL${NC}"
 else
     echo -e "${RED}✗ BBMask vs mask_fastq: DIFFER${NC}"
-    OUTPUTS_MATCH="NO"
-fi
-
-if diff -q "$OUTPUT_DIR/mask_fastq_seqs.txt" "$OUTPUT_DIR/mask_fastq_parallel_seqs.txt" > /dev/null; then
-    echo -e "${GREEN}✓ mask_fastq vs mask_fastq_parallel: IDENTICAL${NC}"
-else
-    echo -e "${RED}✗ mask_fastq vs mask_fastq_parallel: DIFFER${NC}"
-    OUTPUTS_MATCH="NO"
-fi
-
-if diff -q "$OUTPUT_DIR/bbmask_seqs.txt" "$OUTPUT_DIR/mask_fastq_parallel_seqs.txt" > /dev/null; then
-    echo -e "${GREEN}✓ BBMask vs mask_fastq_parallel: IDENTICAL${NC}"
-else
-    echo -e "${RED}✗ BBMask vs mask_fastq_parallel: DIFFER${NC}"
     OUTPUTS_MATCH="NO"
 fi
 echo ""
@@ -332,47 +266,31 @@ echo ""
 # Format runtimes with proper decimal places
 BBMASK_RUNTIME_FMT=$(printf "%.3f" "$BBMASK_RUNTIME" 2>/dev/null || echo "$BBMASK_RUNTIME")
 MASK_FASTQ_RUNTIME_FMT=$(printf "%.3f" "$MASK_FASTQ_RUNTIME" 2>/dev/null || echo "$MASK_FASTQ_RUNTIME")
-MASK_FASTQ_PARALLEL_RUNTIME_FMT=$(printf "%.3f" "$MASK_FASTQ_PARALLEL_RUNTIME" 2>/dev/null || echo "$MASK_FASTQ_PARALLEL_RUNTIME")
 
-printf "%-25s %-20s %-20s %-20s\n" "Metric" "bbmask.sh" "mask_fastq" "mask_fastq_parallel"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-printf "%-25s %-20s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME_FMT}s" "${MASK_FASTQ_RUNTIME_FMT}s" "${MASK_FASTQ_PARALLEL_RUNTIME_FMT}s"
-printf "%-25s %-20s %-20s %-20s\n" "Peak Memory (MB)" "${BBMASK_MEMORY_MB}" "${MASK_FASTQ_MEMORY_MB}" "${MASK_FASTQ_PARALLEL_MEMORY_MB}"
-printf "%-25s %-20s %-20s %-20s\n" "Masked bases" "$BBMASK_MASKED" "${MASK_FASTQ_MASKED_BASES}/${MASK_FASTQ_TOTAL_BASES}" "${MASK_FASTQ_PARALLEL_MASKED_BASES}/${MASK_FASTQ_PARALLEL_TOTAL_BASES}"
-printf "%-25s %-20s %-20s %-20s\n" "Masked percentage" "${BBMASK_MASKED_PCT}%" "${MASK_FASTQ_MASKED_PCT}%" "${MASK_FASTQ_PARALLEL_MASKED_PCT}%"
-printf "%-25s %-20s\n" "All outputs match" "$OUTPUTS_MATCH"
+printf "%-25s %-20s %-20s\n" "Metric" "bbmask.sh" "mask_fastq"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+printf "%-25s %-20s %-20s\n" "Runtime" "${BBMASK_RUNTIME_FMT}s" "${MASK_FASTQ_RUNTIME_FMT}s"
+printf "%-25s %-20s %-20s\n" "Peak Memory (MB)" "${BBMASK_MEMORY_MB}" "${MASK_FASTQ_MEMORY_MB}"
+printf "%-25s %-20s %-20s\n" "Masked bases" "$BBMASK_MASKED" "${MASK_FASTQ_MASKED_BASES}/${MASK_FASTQ_TOTAL_BASES}"
+printf "%-25s %-20s %-20s\n" "Masked percentage" "${BBMASK_MASKED_PCT}%" "${MASK_FASTQ_MASKED_PCT}%"
+printf "%-25s %-20s\n" "Outputs match" "$OUTPUTS_MATCH"
 echo ""
 
-# Calculate speedups
+# Calculate speedup
 if [[ "$BBMASK_RUNTIME" != "unknown" && "$MASK_FASTQ_RUNTIME" != "unknown" ]]; then
     BBMASK_SEC=$(echo "$BBMASK_RUNTIME" | bc)
     MASK_FASTQ_SEC=$(echo "$MASK_FASTQ_RUNTIME" | bc)
-    MASK_FASTQ_PARALLEL_SEC=$(echo "$MASK_FASTQ_PARALLEL_RUNTIME" | bc)
 
     if [[ $(echo "$BBMASK_SEC > 0" | bc) -eq 1 ]]; then
-        # mask_fastq vs BBMask
-        SPEEDUP_SINGLE=$(echo "scale=2; $BBMASK_SEC / $MASK_FASTQ_SEC" | bc)
-        echo -e "${GREEN}mask_fastq vs BBMask: ${SPEEDUP_SINGLE}x${NC}"
-
-        # mask_fastq_parallel vs BBMask
-        SPEEDUP_PARALLEL=$(echo "scale=2; $BBMASK_SEC / $MASK_FASTQ_PARALLEL_SEC" | bc)
-        echo -e "${GREEN}mask_fastq_parallel vs BBMask: ${SPEEDUP_PARALLEL}x${NC}"
-
-        # mask_fastq_parallel vs mask_fastq
-        SPEEDUP_PAR_VS_SINGLE=$(echo "scale=2; $MASK_FASTQ_SEC / $MASK_FASTQ_PARALLEL_SEC" | bc)
-        echo -e "${GREEN}mask_fastq_parallel vs mask_fastq: ${SPEEDUP_PAR_VS_SINGLE}x${NC}"
+        SPEEDUP=$(echo "scale=2; $BBMASK_SEC / $MASK_FASTQ_SEC" | bc)
+        echo -e "${GREEN}Speedup (mask_fastq vs BBMask): ${SPEEDUP}x${NC}"
     fi
 fi
 
 # Calculate memory reduction
 if [[ "$BBMASK_MEMORY_MB" != "unavailable" && "$MASK_FASTQ_MEMORY_MB" != "unavailable" ]]; then
     MEMORY_REDUCTION=$(echo "scale=2; (1 - $MASK_FASTQ_MEMORY_MB / $BBMASK_MEMORY_MB) * 100" | bc)
-    echo -e "${GREEN}Memory reduction (single-threaded): ${MEMORY_REDUCTION}%${NC}"
-fi
-
-if [[ "$BBMASK_MEMORY_MB" != "unavailable" && "$MASK_FASTQ_PARALLEL_MEMORY_MB" != "unavailable" ]]; then
-    MEMORY_REDUCTION_PARALLEL=$(echo "scale=2; (1 - $MASK_FASTQ_PARALLEL_MEMORY_MB / $BBMASK_MEMORY_MB) * 100" | bc)
-    echo -e "${GREEN}Memory reduction (parallel): ${MEMORY_REDUCTION_PARALLEL}%${NC}"
+    echo -e "${GREEN}Memory reduction: ${MEMORY_REDUCTION}%${NC}"
 fi
 
 echo ""

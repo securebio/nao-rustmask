@@ -1,8 +1,9 @@
 use std::io::{self, BufWriter, Write, IsTerminal};
 use std::fs::File;
 use needletail::{parse_fastx_stdin, parse_fastx_file};
-use flate2::{Compression, write::GzEncoder};
+use gzp::{deflate::Gzip, par::compress::ParCompressBuilder, Compression as GzpCompression};
 use clap::{Parser, ValueEnum};
+use rayon::prelude::*;
 use mask_fastq::{mask_sequence_auto, mask_sequence_array, mask_sequence};
 
 /// Method for entropy calculation
@@ -48,6 +49,22 @@ struct Args {
     /// If not specified: stdout is uncompressed, .gz files use level 1 (fast compression).
     #[arg(short = 'c', long)]
     compression_level: Option<u32>,
+
+    /// Number of reads to process per chunk (controls memory usage)
+    #[arg(short = 's', long, default_value_t = 1000)]
+    chunk_size: usize,
+
+    /// Number of threads to use (default: auto-detect CPU cores)
+    #[arg(short = 't', long)]
+    threads: Option<usize>,
+}
+
+/// A single FASTQ record with all its data
+#[derive(Clone)]
+struct FastqRecord {
+    id: Vec<u8>,
+    seq: Vec<u8>,
+    qual: Vec<u8>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,6 +91,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Validate chunk size
+    if args.chunk_size < 1 {
+        eprintln!("Error: chunk size must be at least 1");
+        std::process::exit(1);
+    }
+
+    if args.chunk_size > 100000 {
+        eprintln!("Warning: chunk size {} is very large and may use excessive memory", args.chunk_size);
+        eprintln!("Recommended range: 1000-10000 for most systems");
+    }
+
     // Check if stdin is a terminal and no input file specified
     if args.input.is_none() && std::io::stdin().is_terminal() {
         eprintln!("Error: No input provided. Use -i to specify input file or pipe data to stdin.");
@@ -90,14 +118,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("  - other files: uncompressed (use -c 1-9 to compress)");
         eprintln!();
         eprintln!("Examples:");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq              # uncompressed output");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz           # compressed (level 1)");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -c 6      # compressed (level 6)");
-        eprintln!("  cat reads.fastq | mask_fastq > masked.fastq               # uncompressed stdout");
-        eprintln!("  cat reads.fastq | mask_fastq -c 1 | gzip > masked.fastq.gz  # manual compression");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq -t 4         # uncompressed");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -t 4     # compressed (level 1)");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -c 6 -t 4  # compressed (level 6)");
+        eprintln!("  cat reads.fastq | mask_fastq -t 4 > masked.fastq         # uncompressed stdout");
         eprintln!();
         eprintln!("For full help, use: mask_fastq --help");
         std::process::exit(1);
+    }
+
+    // Configure thread pool if specified
+    if let Some(threads) = args.threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global()
+            .unwrap();
     }
 
     // Create reader from file or stdin
@@ -120,7 +155,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if should_compress {
             let level = args.compression_level.unwrap_or(1);  // Default to level 1 for .gz files
-            Box::new(BufWriter::new(GzEncoder::new(output_file, Compression::new(level))))
+            // Use parallel compression with gzp
+            let encoder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level))
+                .from_writer(output_file);
+            Box::new(BufWriter::new(encoder))
         } else {
             Box::new(BufWriter::new(output_file))
         }
@@ -134,7 +173,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if should_compress {
             let level = args.compression_level.unwrap();
             let stdout = io::stdout();
-            Box::new(BufWriter::new(GzEncoder::new(stdout, Compression::new(level))))
+            // Use parallel compression with gzp
+            let encoder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level))
+                .from_writer(stdout);
+            Box::new(BufWriter::new(encoder))
         } else {
             let stdout = io::stdout();
             Box::new(BufWriter::new(stdout))
@@ -143,45 +186,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut writer = writer;
 
+    // Process reads in chunks
+    let mut chunk: Vec<FastqRecord> = Vec::with_capacity(args.chunk_size);
+
     while let Some(record) = reader.next() {
         let rec = record?;
 
-        // Get sequence and quality
-        let sequence = rec.seq();
-        let quality = rec.qual().unwrap_or(&[]);
+        // Store the record
+        chunk.push(FastqRecord {
+            id: rec.id().to_vec(),
+            seq: rec.seq().to_vec(),
+            qual: rec.qual().unwrap_or(&[]).to_vec(),
+        });
 
-        // Mask low-complexity regions using selected method
-        let (masked_seq, masked_qual) = match args.method {
-            Method::Auto => mask_sequence_auto(
-                sequence.as_ref(),
-                quality,
-                args.window,
-                args.entropy,
-                args.kmer
-            ),
-            Method::Array => mask_sequence_array(
-                sequence.as_ref(),
-                quality,
-                args.window,
-                args.entropy,
-                args.kmer
-            ),
-            Method::Hashmap => mask_sequence(
-                sequence.as_ref(),
-                quality,
-                args.window,
-                args.entropy,
-                args.kmer
-            ),
-        };
+        // Process chunk when full
+        if chunk.len() >= args.chunk_size {
+            process_and_write_chunk(&mut chunk, &mut writer, &args)?;
+            chunk.clear();
+        }
+    }
 
-        // Write masked record in FASTQ format
-        writeln!(writer, "@{}", String::from_utf8_lossy(rec.id()))?;
-        writeln!(writer, "{}", String::from_utf8_lossy(&masked_seq))?;
-        writeln!(writer, "+")?;
-        writeln!(writer, "{}", String::from_utf8_lossy(&masked_qual))?;
+    // Process remaining records
+    if !chunk.is_empty() {
+        process_and_write_chunk(&mut chunk, &mut writer, &args)?;
     }
 
     writer.flush()?;
+    Ok(())
+}
+
+/// Process a chunk of reads in parallel and write results
+fn process_and_write_chunk(
+    chunk: &mut Vec<FastqRecord>,
+    writer: &mut Box<dyn Write>,
+    args: &Args,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Process chunk in parallel using selected method
+    let results: Vec<(Vec<u8>, Vec<u8>)> = chunk
+        .par_iter()
+        .map(|record| {
+            match args.method {
+                Method::Auto => mask_sequence_auto(
+                    &record.seq,
+                    &record.qual,
+                    args.window,
+                    args.entropy,
+                    args.kmer,
+                ),
+                Method::Array => mask_sequence_array(
+                    &record.seq,
+                    &record.qual,
+                    args.window,
+                    args.entropy,
+                    args.kmer,
+                ),
+                Method::Hashmap => mask_sequence(
+                    &record.seq,
+                    &record.qual,
+                    args.window,
+                    args.entropy,
+                    args.kmer,
+                ),
+            }
+        })
+        .collect();
+
+    // Write results in order (sequential to preserve order)
+    for (i, (masked_seq, masked_qual)) in results.iter().enumerate() {
+        writeln!(writer, "@{}", String::from_utf8_lossy(&chunk[i].id))?;
+        writeln!(writer, "{}", String::from_utf8_lossy(masked_seq))?;
+        writeln!(writer, "+")?;
+        writeln!(writer, "{}", String::from_utf8_lossy(masked_qual))?;
+    }
+
     Ok(())
 }
