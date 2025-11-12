@@ -1,15 +1,15 @@
 // Shared library for mask_fastq and mask_fastq_parallel
 use std::collections::HashMap;
 
-/// Encode a k-mer into a u16 using 2 bits per base (A=00, C=01, G=10, T=11)
+/// Encode a k-mer into a u32 using 2 bits per base (A=00, C=01, G=10, T=11)
 /// Returns None if the k-mer contains N or invalid bases
-/// Maximum k-mer size: 8 bases (16 bits / 2 bits per base)
-pub fn encode_kmer(bases: &[u8]) -> Option<u16> {
-    if bases.len() > 8 {
+/// Maximum k-mer size: 15 bases (30 bits / 2 bits per base)
+pub fn encode_kmer(bases: &[u8]) -> Option<u32> {
+    if bases.len() > 15 {
         return None;
     }
 
-    let mut encoded: u16 = 0;
+    let mut encoded: u32 = 0;
     for &base in bases {
         let bits = match base {
             b'A' | b'a' => 0b00,
@@ -25,7 +25,7 @@ pub fn encode_kmer(bases: &[u8]) -> Option<u16> {
 
 /// Calculate Shannon entropy from k-mer frequencies
 /// Returns normalized entropy in range [0, 1]
-pub fn shannon_entropy(kmer_counts: &HashMap<u16, usize>, total_kmers: usize) -> f64 {
+pub fn shannon_entropy(kmer_counts: &HashMap<u32, usize>, total_kmers: usize) -> f64 {
     if total_kmers == 0 {
         return 0.0;
     }
@@ -53,8 +53,8 @@ pub fn shannon_entropy(kmer_counts: &HashMap<u16, usize>, total_kmers: usize) ->
 
 /// Extract all k-mers from a sequence window (strand-specific, no canonicalization)
 /// Matches BBMask behavior: counts k-mers as they appear in the sequence
-/// Uses u16 bit-packed encoding for efficient HashMap operations
-pub fn get_kmers(sequence: &[u8], k: usize) -> HashMap<u16, usize> {
+/// Uses u32 bit-packed encoding for efficient HashMap operations
+pub fn get_kmers(sequence: &[u8], k: usize) -> HashMap<u32, usize> {
     let mut kmer_counts = HashMap::new();
 
     if sequence.len() < k {
@@ -63,7 +63,7 @@ pub fn get_kmers(sequence: &[u8], k: usize) -> HashMap<u16, usize> {
 
     for i in 0..=sequence.len() - k {
         let kmer = &sequence[i..i + k];
-        // Encode k-mer as u16; skip if contains N or invalid bases
+        // Encode k-mer as u32; skip if contains N or invalid bases
         if let Some(encoded) = encode_kmer(kmer) {
             *kmer_counts.entry(encoded).or_insert(0) += 1;
         }
@@ -73,16 +73,16 @@ pub fn get_kmers(sequence: &[u8], k: usize) -> HashMap<u16, usize> {
 }
 
 /// Add a k-mer to the counts (used for incremental sliding window)
-/// Uses u16 bit-packed encoding for efficient HashMap operations
-pub fn add_kmer(kmer_counts: &mut HashMap<u16, usize>, kmer: &[u8]) {
+/// Uses u32 bit-packed encoding for efficient HashMap operations
+pub fn add_kmer(kmer_counts: &mut HashMap<u32, usize>, kmer: &[u8]) {
     if let Some(encoded) = encode_kmer(kmer) {
         *kmer_counts.entry(encoded).or_insert(0) += 1;
     }
 }
 
 /// Remove a k-mer from the counts (used for incremental sliding window)
-/// Uses u16 bit-packed encoding for efficient HashMap operations
-pub fn remove_kmer(kmer_counts: &mut HashMap<u16, usize>, kmer: &[u8]) {
+/// Uses u32 bit-packed encoding for efficient HashMap operations
+pub fn remove_kmer(kmer_counts: &mut HashMap<u32, usize>, kmer: &[u8]) {
     if let Some(encoded) = encode_kmer(kmer) {
         if let Some(count) = kmer_counts.get_mut(&encoded) {
             *count -= 1;
@@ -118,9 +118,9 @@ pub fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thr
 
     // BBMask-style sliding window: mask entire window range when low entropy detected
     // Slide window forward one position at a time, checking entropy at each position
-    // Use incremental k-mer tracking with u16 bit-packed keys for optimal performance
+    // Use incremental k-mer tracking with u32 bit-packed keys for optimal performance
 
-    let mut kmer_counts: HashMap<u16, usize> = HashMap::new();
+    let mut kmer_counts: HashMap<u32, usize> = HashMap::new();
     let mut first_full_window = true;
 
     for i in 0..seq_len {
@@ -208,8 +208,9 @@ impl ArrayEntropyTracker {
     /// - k=6: ~16 KB (4096 kmers × 2 bytes)
     /// - k=7: ~64 KB (16384 kmers × 2 bytes)
     /// - k=8: ~256 KB (65536 kmers × 2 bytes)
+    /// - k > 8: Not recommended (use HashMap instead for k > 7)
     pub fn new(k: usize, window: usize) -> Self {
-        assert!(k > 0 && k <= 8, "k must be in range 1-8");
+        assert!(k > 0 && k <= 15, "k must be in range 1-15");
         assert!(window > k, "window must be larger than k");
 
         let window_kmers = window - k + 1;
@@ -244,7 +245,7 @@ impl ArrayEntropyTracker {
     /// Add a k-mer to the tracker (incremental window update)
     /// Updates counts, count_counts histogram, and running entropy sum
     /// Time complexity: O(1)
-    pub fn add_kmer(&mut self, kmer_code: u16) {
+    pub fn add_kmer(&mut self, kmer_code: u32) {
         let old_count = self.counts[kmer_code as usize];
         let new_count = old_count + 1;
 
@@ -268,7 +269,7 @@ impl ArrayEntropyTracker {
     /// Remove a k-mer from the tracker (incremental window update)
     /// Updates counts, count_counts histogram, and running entropy sum
     /// Time complexity: O(1)
-    pub fn remove_kmer(&mut self, kmer_code: u16) {
+    pub fn remove_kmer(&mut self, kmer_code: u32) {
         let old_count = self.counts[kmer_code as usize];
         if old_count == 0 {
             return; // Nothing to remove

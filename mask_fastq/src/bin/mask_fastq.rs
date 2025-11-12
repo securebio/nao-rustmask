@@ -2,8 +2,19 @@ use std::io::{self, BufWriter, Write, IsTerminal};
 use std::fs::File;
 use needletail::{parse_fastx_stdin, parse_fastx_file};
 use flate2::{Compression, write::GzEncoder};
-use clap::Parser;
-use mask_fastq::mask_sequence_auto;
+use clap::{Parser, ValueEnum};
+use mask_fastq::{mask_sequence_auto, mask_sequence_array, mask_sequence};
+
+/// Method for entropy calculation
+#[derive(ValueEnum, Clone, Debug)]
+enum Method {
+    /// Automatically select between array and hashmap based on k (array for k≤7, hashmap for k>7)
+    Auto,
+    /// Use array-based approach (faster for k≤7, more memory for larger k)
+    Array,
+    /// Use hashmap-based approach (slower but memory-efficient for all k)
+    Hashmap,
+}
 
 /// Mask low-complexity regions in FASTQ reads using entropy calculation
 #[derive(Parser, Debug)]
@@ -25,9 +36,13 @@ struct Args {
     #[arg(short = 'e', long, default_value_t = 0.55)]
     entropy: f64,
 
-    /// K-mer size for entropy calculation (maximum k=8 for optimized u16 encoding)
+    /// K-mer size for entropy calculation (maximum k=15)
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
+
+    /// Method for entropy calculation (auto, array, or hashmap)
+    #[arg(short = 'm', long, value_enum, default_value = "auto")]
+    method: Method,
 
     /// Gzip compression level (0-9, where 0=no compression, 1=fast, 9=max compression).
     /// If not specified: stdout is uncompressed, .gz files use level 1 (fast compression).
@@ -38,10 +53,10 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // Validate k-mer size (u16 encoding supports up to k=8)
-    if args.kmer > 8 {
-        eprintln!("Error: k-mer size k={} exceeds maximum supported value (k ≤ 8)", args.kmer);
-        eprintln!("The optimized u16 encoding uses 2 bits per base, limiting k to 8 bases (16 bits).");
+    // Validate k-mer size (u32 encoding supports up to k=15)
+    if args.kmer > 15 {
+        eprintln!("Error: k-mer size k={} exceeds maximum supported value (k ≤ 15)", args.kmer);
+        eprintln!("The u32 encoding uses 2 bits per base, limiting k to 15 bases (30 bits).");
         eprintln!("For low-complexity masking, k=3 to k=7 is typically used.");
         std::process::exit(1);
     }
@@ -135,14 +150,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sequence = rec.seq();
         let quality = rec.qual().unwrap_or(&[]);
 
-        // Mask low-complexity regions using auto-selection (array-based for k<=7, HashMap for k>7)
-        let (masked_seq, masked_qual) = mask_sequence_auto(
-            sequence.as_ref(),
-            quality,
-            args.window,
-            args.entropy,
-            args.kmer
-        );
+        // Mask low-complexity regions using selected method
+        let (masked_seq, masked_qual) = match args.method {
+            Method::Auto => mask_sequence_auto(
+                sequence.as_ref(),
+                quality,
+                args.window,
+                args.entropy,
+                args.kmer
+            ),
+            Method::Array => mask_sequence_array(
+                sequence.as_ref(),
+                quality,
+                args.window,
+                args.entropy,
+                args.kmer
+            ),
+            Method::Hashmap => mask_sequence(
+                sequence.as_ref(),
+                quality,
+                args.window,
+                args.entropy,
+                args.kmer
+            ),
+        };
 
         // Write masked record in FASTQ format
         writeln!(writer, "@{}", String::from_utf8_lossy(rec.id()))?;
