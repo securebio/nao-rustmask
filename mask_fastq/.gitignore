@@ -1,0 +1,6 @@
+# Rust build artifacts
+target/
+
+# Cargo.lock is typically committed for binaries, excluded for libraries
+# Keeping it excluded here to avoid bloat
+Cargo.lock
