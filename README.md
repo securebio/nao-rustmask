@@ -171,37 +171,30 @@ This creates contiguous masked regions, matching BBMask behavior.
 
 ## Benchmarking
 
-The `benchmark/` directory contains benchmarking tools created by Claude Code during development.
+Compare `mask_fastq` performance against BBMask:
 
 ```bash
-cd benchmark
+cd scripts
 
-# Check system memory
-./check_memory.sh
-
-# Run safe benchmarks (recommended)
-./run_safe_benchmarks.sh
-
-# Generate custom test data
+# Generate test data
 ./generate_test_data.py -n 10000 -l 150 -o illumina.fastq
 
-# Benchmark a specific file
-./run_benchmark.sh illumina.fastq
+# Benchmark against BBMask
+./benchmark_vs_bbmask.sh illumina.fastq
+
+# Custom parameters
+./benchmark_vs_bbmask.sh illumina.fastq --window 50 --entropy 0.6
 ```
 
-See [benchmark/README.md](benchmark/README.md) for detailed documentation.
+The benchmark script:
+- Runs both tools with identical parameters
+- Compares runtime and memory usage
+- Verifies outputs are identical
+- Requires BBMask installed (for comparison only)
 
-## Technical Documentation
+## Development Archive
 
-The `benchmark/` directory also contains detailed technical analyses, also created by Claude code during development:
-
-- `1_HANDOFF_CONTEXT.md` - Project history and development notes
-- `2_BITPACKING_ANALYSIS.md` - U16 k-mer encoding optimization
-- `3_PARALLEL_IMPLEMENTATION.md` - Multi-threading design
-- `4_OPTIMIZATION_RESULTS.md` - Performance improvements
-- `5_PROFILING_ANALYSIS.md` - Bottleneck identification
-- `6_SIMD_PORTABILITY.md` - SIMD considerations
-- `7_PARALLELIZATION_ANALYSIS.md` - Parallel processing strategies
+Historical development materials (analyses, alternative implementations, extensive benchmark scripts) are preserved in the `dev/` directory for reference but are **not actively maintained**. See [`dev/README.md`](dev/README.md) for details.
 
 ## Correctness
 
