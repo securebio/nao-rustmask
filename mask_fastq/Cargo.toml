@@ -16,6 +16,10 @@ path = "src/bin/mask_fastq_parallel.rs"
 name = "memory_benchmark"
 path = "src/bin/memory_benchmark.rs"
 
+[[bin]]
+name = "cache_test"
+path = "src/bin/cache_test.rs"
+
 [dependencies]
 needletail = "0.5"
 flate2 = "1.0"
