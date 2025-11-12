@@ -12,18 +12,6 @@ path = "src/bin/mask_fastq.rs"
 name = "mask_fastq_parallel"
 path = "src/bin/mask_fastq_parallel.rs"
 
-[[bin]]
-name = "memory_benchmark"
-path = "src/bin/memory_benchmark.rs"
-
-[[bin]]
-name = "cache_test"
-path = "src/bin/cache_test.rs"
-
-[[bin]]
-name = "encoding_benchmark"
-path = "src/bin/encoding_benchmark.rs"
-
 [dependencies]
 needletail = "0.5"
 flate2 = "1.0"

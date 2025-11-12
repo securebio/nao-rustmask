@@ -11,12 +11,15 @@ Alternative implementations and profiling tools used during development:
 - **`mask_fastq_array.rs`** - Forces array-based entropy calculation (vs. auto-selection). Useful for benchmarking the array optimization specifically.
 - **`mask_fastq_profiled.rs`** - Instrumented version that tracks time spent in I/O, masking, and writing. Used to identify bottlenecks.
 - **`microbench.rs`** - Component-level microbenchmarks for k-mer encoding, entropy tracker operations, and sliding window performance.
+- **`memory_benchmark.rs`** - Memory usage benchmarking tool for analyzing memory scaling with different k values, chunk sizes, and thread counts.
+- **`cache_test.rs`** - Cache performance testing tool for comparing array vs HashMap approaches at different k-mer sizes.
+- **`encoding_benchmark.rs`** - Performance comparison of u16 vs u32 k-mer encoding to inform decision on supporting k≤15.
 
 These binaries are **not maintained** and may not compile with the current library code without updates.
 
 ### `docs/` - Development Documentation
 
-Technical analyses and decision logs created during development (2,683 lines total):
+Technical analyses and decision logs created during development:
 
 1. **`1_HANDOFF_CONTEXT.md`** - Project history, initial implementation notes, and handoff context
 2. **`2_BITPACKING_ANALYSIS.md`** - Analysis of u16 bit-packing optimization for k-mer encoding
@@ -25,6 +28,7 @@ Technical analyses and decision logs created during development (2,683 lines tot
 5. **`5_PROFILING_ANALYSIS.md`** - Bottleneck identification through profiling
 6. **`6_SIMD_PORTABILITY.md`** - Investigation of SIMD optimizations and portability concerns
 7. **`7_PARALLELIZATION_ANALYSIS.md`** - Parallel processing strategies and tradeoffs
+8. **`MEMORY_ANALYSIS.md`** - Memory scaling analysis for extending k-mer support from k≤8 to k≤15, including benchmarking results and u32 migration recommendations
 
 These documents capture important context about **why** certain design decisions were made, including:
 - Why we use strand-specific (not canonical) k-mers
@@ -32,6 +36,7 @@ These documents capture important context about **why** certain design decisions
 - Why array-based tracking is limited to k≤7
 - Why SIMD was not implemented
 - Memory usage patterns and optimization strategies
+- Why u32 encoding was chosen over maintaining both u16 and u32
 
 ### `benchmarks/` - Development Benchmark Scripts
 
@@ -76,10 +81,10 @@ For production use, see:
 
 ## Status
 
-**Last updated**: 2025-11-12
+**Last updated**: 2025-11-12 (updated with k≤15 extension artifacts)
 **Status**: Archived (not actively maintained)
 **Purpose**: Historical reference and context preservation
 
 ---
 
-*These materials were created by Claude Code during the initial implementation and optimization of mask_fastq to address issue #323 in the NAO mgs-workflow pipeline.*
+*These materials were created by Claude Code during the initial implementation and optimization of mask_fastq to address issue #323 in the NAO mgs-workflow pipeline, and later extended to support k≤15 for BBMask compatibility.*
