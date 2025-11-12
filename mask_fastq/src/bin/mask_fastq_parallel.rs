@@ -30,11 +30,11 @@ struct Args {
     output: Option<String>,
 
     /// Window size for entropy calculation
-    #[arg(short = 'w', long, default_value_t = 25)]
+    #[arg(short = 'w', long, default_value_t = 80)]
     window: usize,
 
     /// Entropy threshold (mask if entropy < threshold)
-    #[arg(short = 'e', long, default_value_t = 0.55)]
+    #[arg(short = 'e', long, default_value_t = 0.70)]
     entropy: f64,
 
     /// K-mer size for entropy calculation (maximum k=15)

@@ -99,8 +99,8 @@ mask_fastq_parallel -i large.fastq.gz -o masked.fastq.gz \
 |--------|-------|---------|-------------|
 | `--input` | `-i` | stdin | Input FASTQ file (plain or gzipped) |
 | `--output` | `-o` | stdout | Output FASTQ file |
-| `--window` | `-w` | 25 | Window size for entropy calculation |
-| `--entropy` | `-e` | 0.55 | Entropy threshold (mask if < threshold) |
+| `--window` | `-w` | 80 | Window size for entropy calculation |
+| `--entropy` | `-e` | 0.70 | Entropy threshold (mask if < threshold) |
 | `--kmer` | `-k` | 5 | K-mer size (1-15) |
 | `--method` | `-m` | auto | Method: `auto` (adaptive), `array` (fast), or `hashmap` (memory-efficient) |
 | `--compression-level` | `-c` | auto | Gzip compression level (0-9) |

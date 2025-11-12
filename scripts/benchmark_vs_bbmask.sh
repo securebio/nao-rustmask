@@ -15,8 +15,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default parameters (matching bbmask defaults)
-WINDOW=25
-ENTROPY=0.55
+WINDOW=80
+ENTROPY=0.70
 KMER=5
 THREADS=4  # Default thread count for parallel version
 
@@ -24,6 +24,17 @@ THREADS=4  # Default thread count for parallel version
 INPUT_FASTQ=""
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -h|--help)
+            echo "Usage: $0 <input.fastq> [options]"
+            echo ""
+            echo "Options:"
+            echo "  -w, --window N    Window size for entropy calculation (default: $WINDOW)"
+            echo "  -e, --entropy N   Entropy threshold (default: $ENTROPY)"
+            echo "  -k, --kmer N      K-mer size (default: $KMER)"
+            echo "  -t, --threads N   Number of threads for parallel version (default: $THREADS)"
+            echo "  -h, --help        Show this help"
+            exit 0
+            ;;
         -w|--window)
             WINDOW="$2"
             shift 2
@@ -39,17 +50,6 @@ while [[ $# -gt 0 ]]; do
         -t|--threads)
             THREADS="$2"
             shift 2
-            ;;
-        -h|--help)
-            echo "Usage: $0 <input.fastq> [options]"
-            echo ""
-            echo "Options:"
-            echo "  -w, --window N    Window size for entropy calculation (default: 25)"
-            echo "  -e, --entropy N   Entropy threshold (default: 0.55)"
-            echo "  -k, --kmer N      K-mer size (default: 5)"
-            echo "  -t, --threads N   Number of threads for parallel version (default: 4)"
-            echo "  -h, --help        Show this help"
-            exit 0
             ;;
         *)
             if [[ -z "$INPUT_FASTQ" ]]; then
