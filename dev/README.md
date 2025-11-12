@@ -28,7 +28,7 @@ Technical analyses and decision logs created during development:
 5. **`5_PROFILING_ANALYSIS.md`** - Bottleneck identification through profiling
 6. **`6_SIMD_PORTABILITY.md`** - Investigation of SIMD optimizations and portability concerns
 7. **`7_PARALLELIZATION_ANALYSIS.md`** - Parallel processing strategies and tradeoffs
-8. **`MEMORY_ANALYSIS.md`** - Memory scaling analysis for extending k-mer support from k≤8 to k≤15, including benchmarking results and u32 migration recommendations
+8. **`8_MEMORY_ANALYSIS.md`** - Memory scaling analysis for extending k-mer support from k≤8 to k≤15, including benchmarking results and u32 migration recommendations
 
 These documents capture important context about **why** certain design decisions were made, including:
 - Why we use strand-specific (not canonical) k-mers
