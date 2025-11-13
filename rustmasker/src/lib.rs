@@ -102,15 +102,19 @@ pub fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thr
 
     if seq_len < window {
         // If sequence is shorter than window, calculate entropy for the whole sequence
-        let kmer_counts = get_kmers(sequence, k);
-        let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers);
+        // BBMask behavior: skip masking if sequence contains any Ns
+        let has_n = sequence.iter().any(|&b| b == b'N' || b == b'n');
+        if !has_n {
+            let kmer_counts = get_kmers(sequence, k);
+            let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
+            let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
-        if entropy < entropy_threshold {
-            // Mask entire sequence
-            for i in 0..seq_len {
-                masked_seq[i] = b'N';
-                masked_qual[i] = b'#';
+            if entropy < entropy_threshold {
+                // Mask entire sequence
+                for i in 0..seq_len {
+                    masked_seq[i] = b'N';
+                    masked_qual[i] = b'#';
+                }
             }
         }
         return (masked_seq, masked_qual);
@@ -160,16 +164,23 @@ pub fn mask_sequence(sequence: &[u8], quality: &[u8], window: usize, entropy_thr
             }
         }
 
-        // Calculate entropy for this window
-        let total_kmers = if window >= k { window - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers);
+        // BBMask behavior: skip masking decision if window contains any Ns
+        let window_has_n = sequence[window_start..window_end]
+            .iter()
+            .any(|&b| b == b'N' || b == b'n');
 
-        // If entropy is below threshold, mask the entire window range
-        // This matches BBMask's behavior of masking complete windows
-        if entropy < entropy_threshold {
-            for pos in window_start..window_end {
-                masked_seq[pos] = b'N';
-                masked_qual[pos] = b'#';
+        if !window_has_n {
+            // Calculate entropy for this window
+            let total_kmers = if window >= k { window - k + 1 } else { 0 };
+            let entropy = shannon_entropy(&kmer_counts, total_kmers);
+
+            // If entropy is below threshold, mask the entire window range
+            // This matches BBMask's behavior of masking complete windows
+            if entropy < entropy_threshold {
+                for pos in window_start..window_end {
+                    masked_seq[pos] = b'N';
+                    masked_qual[pos] = b'#';
+                }
             }
         }
     }
@@ -343,16 +354,20 @@ pub fn mask_sequence_array(
 
     if seq_len < window {
         // If sequence is shorter than window, calculate entropy for the whole sequence
-        // Fall back to HashMap for short sequences (not worth the array overhead)
-        let kmer_counts = get_kmers(sequence, k);
-        let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
-        let entropy = shannon_entropy(&kmer_counts, total_kmers);
+        // BBMask behavior: skip masking if sequence contains any Ns
+        let has_n = sequence.iter().any(|&b| b == b'N' || b == b'n');
+        if !has_n {
+            // Fall back to HashMap for short sequences (not worth the array overhead)
+            let kmer_counts = get_kmers(sequence, k);
+            let total_kmers = if seq_len >= k { seq_len - k + 1 } else { 0 };
+            let entropy = shannon_entropy(&kmer_counts, total_kmers);
 
-        if entropy < entropy_threshold {
-            // Mask entire sequence
-            for i in 0..seq_len {
-                masked_seq[i] = b'N';
-                masked_qual[i] = b'#';
+            if entropy < entropy_threshold {
+                // Mask entire sequence
+                for i in 0..seq_len {
+                    masked_seq[i] = b'N';
+                    masked_qual[i] = b'#';
+                }
             }
         }
         return (masked_seq, masked_qual);
@@ -404,14 +419,21 @@ pub fn mask_sequence_array(
             }
         }
 
-        // Get entropy - O(1) operation!
-        let entropy = tracker.entropy();
+        // BBMask behavior: skip masking decision if window contains any Ns
+        let window_has_n = sequence[window_start..window_end]
+            .iter()
+            .any(|&b| b == b'N' || b == b'n');
 
-        // If entropy is below threshold, mask the entire window range
-        if entropy < entropy_threshold {
-            for pos in window_start..window_end {
-                masked_seq[pos] = b'N';
-                masked_qual[pos] = b'#';
+        if !window_has_n {
+            // Get entropy - O(1) operation!
+            let entropy = tracker.entropy();
+
+            // If entropy is below threshold, mask the entire window range
+            if entropy < entropy_threshold {
+                for pos in window_start..window_end {
+                    masked_seq[pos] = b'N';
+                    masked_qual[pos] = b'#';
+                }
             }
         }
     }
