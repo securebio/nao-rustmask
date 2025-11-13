@@ -1,2 +1,4 @@
 *.fastq
 *.fastq.gz
+results/
+test_data/
