@@ -441,6 +441,198 @@ pub fn mask_sequence_auto(
     }
 }
 
+// ============================================================================
+// SDUST Algorithm Implementation
+// ============================================================================
+
+/// Encode a triplet (3 bases) into a 6-bit word (0-63)
+/// A=0b00, C=0b01, G=0b10, T=0b11
+/// Returns None if sequence contains N or invalid bases
+pub fn encode_triplet(bases: &[u8]) -> Option<u8> {
+    if bases.len() != 3 {
+        return None;
+    }
+
+    let mut word: u8 = 0;
+    for &base in bases {
+        let bits = match base {
+            b'A' | b'a' => 0b00,
+            b'C' | b'c' => 0b01,
+            b'G' | b'g' => 0b10,
+            b'T' | b't' => 0b11,
+            _ => return None,  // N or invalid base
+        };
+        word = (word << 2) | bits;
+    }
+    Some(word)
+}
+
+/// Represents a region to be masked
+#[derive(Debug, Clone, Copy)]
+struct MaskRegion {
+    start: usize,  // Start position (inclusive)
+    end: usize,    // End position (exclusive)
+}
+
+/// SDUST window scorer
+struct SdustScorer {
+    window_size: usize,
+    threshold: i32,
+}
+
+impl SdustScorer {
+    pub fn new(window_size: usize, threshold: i32) -> Self {
+        Self { window_size, threshold }
+    }
+
+    /// Calculate DUST score for a window of triplets
+    /// DUST score = sum of count*(count-1)/2 for each unique triplet
+    /// Returns the DUST score
+    fn score_window(&self, triplets: &[u8]) -> i32 {
+        let mut counts = [0u16; 64];  // 64 possible triplet values
+
+        for &triplet in triplets {
+            counts[triplet as usize] += 1;
+        }
+
+        // Calculate DUST score: sum of count*(count-1)/2 for each triplet
+        let mut score = 0i32;
+        for count in counts.iter() {
+            let c = *count as i32;
+            if c > 1 {
+                score += c * (c - 1) / 2;
+            }
+        }
+        score
+    }
+
+    /// Check if a window should be masked
+    /// Formula from sdust: score * 10 / window_length > threshold
+    fn should_mask(&self, score: i32, window_length: usize) -> bool {
+        if window_length == 0 {
+            return false;
+        }
+        score * 10 > self.threshold * window_length as i32
+    }
+}
+
+/// Find regions to mask using SDUST algorithm
+fn find_dust_regions(
+    triplets: &[u8],
+    positions: &[usize],
+    window_size: usize,
+    threshold: i32,
+) -> Vec<MaskRegion> {
+    let scorer = SdustScorer::new(window_size, threshold);
+    let mut regions = Vec::new();
+
+    if triplets.len() < window_size {
+        // Score entire sequence
+        let score = scorer.score_window(triplets);
+        if scorer.should_mask(score, triplets.len()) {
+            if let (Some(&start), Some(&end)) = (positions.first(), positions.last()) {
+                regions.push(MaskRegion { start, end: end + 3 });
+            }
+        }
+        return regions;
+    }
+
+    // Slide window over triplets
+    let mut current_region: Option<MaskRegion> = None;
+
+    for i in 0..=triplets.len().saturating_sub(window_size) {
+        let window = &triplets[i..i + window_size];
+        let score = scorer.score_window(window);
+
+        if scorer.should_mask(score, window.len()) {
+            let start_pos = positions[i];
+            let end_pos = positions[i + window_size - 1] + 3;
+
+            match current_region.as_mut() {
+                Some(region) if region.end >= start_pos => {
+                    // Extend existing region
+                    region.end = region.end.max(end_pos);
+                }
+                _ => {
+                    // Start new region
+                    if let Some(region) = current_region.take() {
+                        regions.push(region);
+                    }
+                    current_region = Some(MaskRegion { start: start_pos, end: end_pos });
+                }
+            }
+        }
+    }
+
+    if let Some(region) = current_region {
+        regions.push(region);
+    }
+
+    regions
+}
+
+/// Apply masks to sequence and quality scores
+fn apply_masks(seq: &mut [u8], qual: &mut [u8], regions: &[MaskRegion]) {
+    for region in regions {
+        for i in region.start..region.end.min(seq.len()) {
+            seq[i] = b'N';
+            qual[i] = b'#';
+        }
+    }
+}
+
+/// Mask low-complexity regions using the SDUST algorithm
+///
+/// # Arguments
+/// * `sequence` - DNA sequence bytes (A/C/G/T/N)
+/// * `quality` - Quality scores (same length as sequence)
+/// * `window_size` - Window size W (default: 64)
+/// * `threshold` - Score threshold T (default: 20)
+///
+/// # Returns
+/// Tuple of (masked_sequence, masked_quality) where low-complexity regions
+/// are replaced with 'N' (sequence) and '#' (quality)
+pub fn mask_sequence_sdust(
+    sequence: &[u8],
+    quality: &[u8],
+    window_size: usize,
+    threshold: i32,
+) -> (Vec<u8>, Vec<u8>) {
+    let mut masked_seq = sequence.to_vec();
+    let mut masked_qual = quality.to_vec();
+
+    if sequence.len() < 3 {
+        return (masked_seq, masked_qual);
+    }
+
+    // Convert sequence to triplets
+    let mut triplets = Vec::new();
+    let mut triplet_positions = Vec::new();  // Track where each triplet starts
+
+    for i in 0..sequence.len().saturating_sub(2) {
+        if let Some(triplet) = encode_triplet(&sequence[i..i+3]) {
+            triplets.push(triplet);
+            triplet_positions.push(i);
+        } else {
+            // N or invalid base - process accumulated triplets
+            if !triplets.is_empty() {
+                let regions = find_dust_regions(&triplets, &triplet_positions, window_size, threshold);
+                apply_masks(&mut masked_seq, &mut masked_qual, &regions);
+                triplets.clear();
+                triplet_positions.clear();
+            }
+        }
+    }
+
+    // Process final batch
+    if !triplets.is_empty() {
+        let regions = find_dust_regions(&triplets, &triplet_positions, window_size, threshold);
+        apply_masks(&mut masked_seq, &mut masked_qual, &regions);
+    }
+
+    (masked_seq, masked_qual)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,5 +840,118 @@ mod tests {
         // Should be entirely masked
         let masked_count = masked_seq.iter().filter(|&&b| b == b'N').count();
         assert_eq!(masked_count, 26);
+    }
+
+    // Tests for SDUST algorithm
+
+    #[test]
+    fn test_encode_triplet() {
+        // Test valid triplets (A=00, C=01, G=10, T=11)
+        assert_eq!(encode_triplet(b"AAA"), Some(0b000000));  // 0
+        assert_eq!(encode_triplet(b"AAC"), Some(0b000001));  // 1
+        assert_eq!(encode_triplet(b"AAG"), Some(0b000010));  // 2
+        assert_eq!(encode_triplet(b"AAT"), Some(0b000011));  // 3
+        assert_eq!(encode_triplet(b"CCC"), Some(0b010101));  // 21
+        assert_eq!(encode_triplet(b"GGG"), Some(0b101010));  // 42
+        assert_eq!(encode_triplet(b"TTT"), Some(0b111111));  // 63
+        assert_eq!(encode_triplet(b"ACG"), Some(0b000110));  // 6
+
+        // Test lowercase
+        assert_eq!(encode_triplet(b"aaa"), Some(0b000000));
+        assert_eq!(encode_triplet(b"acg"), Some(0b000110));
+
+        // Test invalid cases
+        assert_eq!(encode_triplet(b"AAN"), None);
+        assert_eq!(encode_triplet(b"NNN"), None);
+        assert_eq!(encode_triplet(b"AA"), None);
+        assert_eq!(encode_triplet(b"AAAA"), None);
+    }
+
+    #[test]
+    fn test_sdust_homopolymer() {
+        // Homopolymers should be masked with default parameters
+        let seq = b"AAAAAAAAAAAAAAAA";  // 16 A's
+        let qual = vec![b'I'; 16];
+        let (masked, masked_qual) = mask_sequence_sdust(seq, &qual, 10, 20);
+
+        // Homopolymer should be masked
+        assert!(masked.iter().all(|&b| b == b'N'), "Expected all bases to be masked");
+        assert!(masked_qual.iter().all(|&b| b == b'#'), "Expected all quality to be masked");
+    }
+
+    #[test]
+    fn test_sdust_high_complexity() {
+        // High complexity sequence should not be masked
+        let seq = b"ACGTACGTACGTACGT";  // High complexity
+        let qual = vec![b'I'; 16];
+        let (masked, masked_qual) = mask_sequence_sdust(seq, &qual, 10, 20);
+
+        // Should not be masked
+        assert_eq!(masked, seq);
+        assert_eq!(masked_qual, qual);
+    }
+
+    #[test]
+    fn test_sdust_with_n() {
+        // N bases should break the sequence into segments
+        // Use longer homopolymer runs and lower threshold
+        let seq = b"AAAAAAAAANNNNGGGGGGGGGG";
+        let qual = vec![b'I'; 23];
+        let (masked, _) = mask_sequence_sdust(seq, &qual, 8, 20);
+
+        // A's should be masked (homopolymer)
+        let a_masked = masked[0..9].iter().filter(|&&b| b == b'N').count();
+        assert!(a_masked > 5, "Expected most A's to be masked, got {}", a_masked);
+
+        // N's stay as N (positions 9-12)
+        assert!(masked[9..13].iter().all(|&b| b == b'N'));
+
+        // G's should be masked (homopolymer)
+        let g_masked = masked[13..23].iter().filter(|&&b| b == b'N').count();
+        assert!(g_masked > 5, "Expected most G's to be masked, got {}", g_masked);
+    }
+
+    #[test]
+    fn test_sdust_short_sequence() {
+        // Very short sequences (< 3 bases) should be returned unchanged
+        let seq = b"AA";
+        let qual = vec![b'I'; 2];
+        let (masked, masked_qual) = mask_sequence_sdust(seq, &qual, 10, 20);
+
+        assert_eq!(masked, seq);
+        assert_eq!(masked_qual, qual);
+    }
+
+    #[test]
+    fn test_sdust_dinucleotide_repeat() {
+        // Dinucleotide repeat (GCGC...) is low complexity and should be masked
+        // GCGC produces alternating triplets: GCG and CGC
+        let seq = b"GCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGC";  // 32 bases
+        let qual = vec![b'I'; 32];
+        // Use window_size that captures the repetition pattern
+        let (masked, _) = mask_sequence_sdust(seq, &qual, 16, 20);
+
+        // Should be masked (or mostly masked)
+        let masked_count = masked.iter().filter(|&&b| b == b'N').count();
+        assert!(masked_count > 16, "Expected most of the dinucleotide repeat to be masked, got {} out of {}", masked_count, 32);
+    }
+
+    #[test]
+    fn test_sdust_threshold_sensitivity() {
+        // Test that higher threshold means less masking
+        let seq = b"ATATATATATATAT";  // AT repeat
+        let qual = vec![b'I'; 14];
+
+        // Low threshold - should mask more
+        let (masked_low, _) = mask_sequence_sdust(seq, &qual, 10, 10);
+        let masked_count_low = masked_low.iter().filter(|&&b| b == b'N').count();
+
+        // High threshold - should mask less
+        let (masked_high, _) = mask_sequence_sdust(seq, &qual, 10, 50);
+        let masked_count_high = masked_high.iter().filter(|&&b| b == b'N').count();
+
+        assert!(masked_count_low >= masked_count_high,
+            "Lower threshold should mask at least as much as higher threshold. Low: {}, High: {}",
+            masked_count_low, masked_count_high);
     }
 }

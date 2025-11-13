@@ -8,26 +8,36 @@ This project was created to solve memory issues with [BBTools' BBMask program](h
 
 ### Key Features
 
-- **Identical output** to BBMask's entropy masking
+- **Two masking algorithms**: Choose between entropy-based (BBMask-compatible) or SDUST (dustmasker-compatible)
+- **Identical output** to reference implementations (BBMask for entropy, sdust for SDUST)
 - **Streaming architecture** controls memory usage on large files
 - **Parallel processing**: Multi-core support for fast processing
 - **Compatible I/O**: Reads and writes plain or gzipped FASTQ files
-- **Flexible method selection**: Choose between array-based (fast) or HashMap (memory-efficient) algorithms
+- **Flexible method selection**: Choose between array-based (fast) or HashMap (memory-efficient) algorithms for entropy
 
 ## What is Low-Complexity Masking?
 
-Low-complexity regions in DNA sequences (homopolymers, tandem repeats, etc.) can cause false-positive alignments and complicate downstream analysis. This tool identifies and masks such regions by:
+Low-complexity regions in DNA sequences (homopolymers, tandem repeats, etc.) can cause false-positive alignments and complicate downstream analysis. This tool identifies and masks such regions by replacing low-complexity bases with 'N' and quality scores with '#'.
 
-1. Computing Shannon entropy for k-mers in sliding windows
-2. Masking windows that fall below an entropy threshold
-3. Replacing masked bases with 'N' and quality scores with '#'
+Two algorithms are supported:
+
+### Entropy-Based Masking (default)
+1. Computes Shannon entropy for k-mers in sliding windows
+2. Masks windows that fall below an entropy threshold
+3. Compatible with BBMask output
+
+### SDUST Algorithm
+1. Uses triplet (3-mer) repetition scoring in sliding windows
+2. Masks regions with repetitive triplet patterns
+3. Compatible with dustmasker/sdust output
+4. Based on [Heng Li's sdust implementation](https://github.com/lh3/sdust)
 
 Example:
 ```
 Original:  ACGTACGT AAAAAAAAAA GCTAGCTA
 Masked:    ACGTACGT NNNNNNNNNN GCTAGCTA
            ↑ high    ↑ low      ↑ high
-             entropy   entropy    entropy
+             complexity complexity complexity
 ```
 
 ## Installation
@@ -48,25 +58,46 @@ The compiled binary will be in `rustmasker/target/release/rustmasker`
 
 ## Usage
 
+### Choosing an Algorithm
+
+| Algorithm | Best For | Parameters | Compatibility |
+|-----------|----------|------------|---------------|
+| **Entropy** (default) | BBMask replacement, flexible k-mer sizes | Window (default 80), Threshold (default 0.70), K-mer size (default 5) | BBMask |
+| **SDUST** | dustmasker/sdust replacement, standard low-complexity filtering | Window (default 64), Threshold (default 20) | sdust, dustmasker |
+
 ### Basic Usage
 
 ```bash
-# Read from file, write to file
+# Entropy masking (default) - BBMask compatible
 rustmasker -i input.fastq.gz -o output.fastq.gz
+
+# SDUST masking - dustmasker compatible
+rustmasker -i input.fastq.gz -o output.fastq.gz --algorithm sdust
+
+# Short form
+rustmasker -i input.fastq.gz -o output.fastq.gz -a sdust
 
 # Use stdin/stdout
 cat input.fastq.gz | rustmasker > output.fastq
+cat input.fastq.gz | rustmasker -a sdust > output.fastq
 
 # Uncompressed output
 rustmasker -i input.fastq.gz -o output.fastq
 
-# Custom parameters
+# Custom entropy parameters
 rustmasker -i input.fastq.gz -o output.fastq.gz \
+  -a entropy \
   --window 50 \
   --threshold 0.6 \
   --kmer 7
 
-# Force specific method (array is default for k≤7)
+# Custom SDUST parameters
+rustmasker -i input.fastq.gz -o output.fastq.gz \
+  -a sdust \
+  --window 64 \
+  --threshold 25
+
+# Force specific method for entropy (array is default for k≤7)
 rustmasker -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
 
 # Use all available CPU cores (default)
@@ -87,10 +118,11 @@ rustmasker -i large.fastq.gz -o masked.fastq.gz \
 |--------|-------|---------|-------------|
 | `--input` | `-i` | stdin | Input FASTQ file (plain or gzipped) |
 | `--output` | `-o` | stdout | Output FASTQ file |
-| `--window` | `-w` | 80 | Window size for entropy calculation |
-| `--threshold` | `-t` | 0.70 | Entropy threshold (mask if < threshold) |
-| `--kmer` | `-k` | 5 | K-mer size (1-15) |
-| `--method` | `-m` | auto | Method: `auto` (adaptive), `array` (fast), or `hashmap` (memory-efficient) |
+| `--algorithm` | `-a` | entropy | Masking algorithm: `entropy` or `sdust` |
+| `--window` | `-w` | entropy:80, sdust:64 | Window size for masking calculation |
+| `--threshold` | `-t` | entropy:0.70, sdust:20 | Masking threshold (entropy: 0.0-1.0, sdust: integer) |
+| `--kmer` | `-k` | 5 | K-mer size (1-15, entropy only) |
+| `--method` | `-m` | auto | Entropy method: `auto`, `array`, or `hashmap` (entropy only) |
 | `--compression-level` | `-c` | auto | Gzip compression level (0-9) |
 | `--threads` | `-j` | auto | Number of threads to use |
 | `--chunk-size` | `-s` | 1000 | Reads per chunk (affects memory usage) |

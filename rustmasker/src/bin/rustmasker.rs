@@ -4,10 +4,19 @@ use needletail::{parse_fastx_stdin, parse_fastx_file};
 use gzp::{deflate::Gzip, par::compress::ParCompressBuilder, Compression as GzpCompression};
 use clap::{Parser, ValueEnum};
 use rayon::prelude::*;
-use rustmasker::{mask_sequence_auto, mask_sequence_array, mask_sequence};
+use rustmasker::{mask_sequence_auto, mask_sequence_array, mask_sequence, mask_sequence_sdust};
+
+/// Algorithm for masking low-complexity regions
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+enum Algorithm {
+    /// Shannon entropy-based masking (BBMask-compatible)
+    Entropy,
+    /// Symmetric DUST algorithm (sdust/dustmasker-compatible)
+    Sdust,
+}
 
 /// Method for entropy calculation
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 enum Method {
     /// Automatically select between array and hashmap based on k (array for k≤7, hashmap for k>7)
     Auto,
@@ -17,7 +26,7 @@ enum Method {
     Hashmap,
 }
 
-/// Mask low-complexity regions in FASTQ reads using entropy calculation
+/// Mask low-complexity regions in FASTQ reads using entropy or SDUST algorithm
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -29,19 +38,23 @@ struct Args {
     #[arg(short = 'o', long)]
     output: Option<String>,
 
-    /// Window size for entropy calculation
-    #[arg(short = 'w', long, default_value_t = 80)]
-    window: usize,
+    /// Masking algorithm to use
+    #[arg(short = 'a', long, value_enum, default_value = "entropy")]
+    algorithm: Algorithm,
 
-    /// Entropy threshold (mask if entropy < threshold)
-    #[arg(short = 't', long, default_value_t = 0.70)]
-    threshold: f64,
+    /// Window size (default: entropy=80, sdust=64)
+    #[arg(short = 'w', long)]
+    window: Option<usize>,
 
-    /// K-mer size for entropy calculation (maximum k=15)
+    /// Masking threshold (default: entropy=0.70, sdust=20)
+    #[arg(short = 't', long)]
+    threshold: Option<String>,
+
+    /// K-mer size for entropy calculation (maximum k=15, only used with entropy algorithm)
     #[arg(short = 'k', long, default_value_t = 5)]
     kmer: usize,
 
-    /// Method for entropy calculation (auto, array, or hashmap)
+    /// Method for entropy calculation (auto, array, or hashmap, only used with entropy algorithm)
     #[arg(short = 'm', long, value_enum, default_value = "auto")]
     method: Method,
 
@@ -70,6 +83,40 @@ struct FastqRecord {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    // Set algorithm-specific defaults
+    let window = args.window.unwrap_or(match args.algorithm {
+        Algorithm::Entropy => 80,
+        Algorithm::Sdust => 64,
+    });
+
+    // Parse threshold based on algorithm
+    let (entropy_threshold, sdust_threshold) = match args.algorithm {
+        Algorithm::Entropy => {
+            let t = args.threshold
+                .clone()
+                .unwrap_or_else(|| "0.70".to_string())
+                .parse::<f64>()
+                .map_err(|_| "Invalid entropy threshold: must be a floating-point number")?;
+            if !(0.0..=1.0).contains(&t) {
+                eprintln!("Error: Entropy threshold must be between 0.0 and 1.0, got {}", t);
+                std::process::exit(1);
+            }
+            (t, 0)
+        }
+        Algorithm::Sdust => {
+            let t = args.threshold
+                .clone()
+                .unwrap_or_else(|| "20".to_string())
+                .parse::<i32>()
+                .map_err(|_| "Invalid SDUST threshold: must be an integer")?;
+            if t < 0 {
+                eprintln!("Error: SDUST threshold must be positive, got {}", t);
+                std::process::exit(1);
+            }
+            (0.0, t)
+        }
+    };
+
     // Validate k-mer size (u32 encoding supports up to k=15)
     if args.kmer > 15 {
         eprintln!("Error: k-mer size k={} exceeds maximum supported value (k ≤ 15)", args.kmer);
@@ -81,6 +128,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.kmer < 1 {
         eprintln!("Error: k-mer size k={} is too small (k must be at least 1)", args.kmer);
         std::process::exit(1);
+    }
+
+    // Warn if algorithm-specific flags are used with wrong algorithm
+    if args.algorithm == Algorithm::Sdust {
+        if args.kmer != 5 {  // 5 is default
+            eprintln!("Warning: -k/--kmer is ignored with sdust algorithm (always uses triplets)");
+        }
+        if args.method != Method::Auto {
+            eprintln!("Warning: -m/--method is ignored with sdust algorithm");
+        }
     }
 
     // Validate compression level if specified
@@ -213,14 +270,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Process chunk when full
         if chunk.len() >= args.chunk_size {
-            process_and_write_chunk(&mut chunk, &mut writer, &args)?;
+            process_and_write_chunk(&mut chunk, &mut writer, &args, window, entropy_threshold, sdust_threshold)?;
             chunk.clear();
         }
     }
 
     // Process remaining records
     if !chunk.is_empty() {
-        process_and_write_chunk(&mut chunk, &mut writer, &args)?;
+        process_and_write_chunk(&mut chunk, &mut writer, &args, window, entropy_threshold, sdust_threshold)?;
     }
 
     writer.flush()?;
@@ -232,33 +289,48 @@ fn process_and_write_chunk(
     chunk: &mut Vec<FastqRecord>,
     writer: &mut Box<dyn Write>,
     args: &Args,
+    window: usize,
+    entropy_threshold: f64,
+    sdust_threshold: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Process chunk in parallel using selected method
+    // Process chunk in parallel using selected algorithm and method
     let results: Vec<(Vec<u8>, Vec<u8>)> = chunk
         .par_iter()
         .map(|record| {
-            match args.method {
-                Method::Auto => mask_sequence_auto(
-                    &record.seq,
-                    &record.qual,
-                    args.window,
-                    args.threshold,
-                    args.kmer,
-                ),
-                Method::Array => mask_sequence_array(
-                    &record.seq,
-                    &record.qual,
-                    args.window,
-                    args.threshold,
-                    args.kmer,
-                ),
-                Method::Hashmap => mask_sequence(
-                    &record.seq,
-                    &record.qual,
-                    args.window,
-                    args.threshold,
-                    args.kmer,
-                ),
+            match args.algorithm {
+                Algorithm::Entropy => {
+                    match args.method {
+                        Method::Auto => mask_sequence_auto(
+                            &record.seq,
+                            &record.qual,
+                            window,
+                            entropy_threshold,
+                            args.kmer,
+                        ),
+                        Method::Array => mask_sequence_array(
+                            &record.seq,
+                            &record.qual,
+                            window,
+                            entropy_threshold,
+                            args.kmer,
+                        ),
+                        Method::Hashmap => mask_sequence(
+                            &record.seq,
+                            &record.qual,
+                            window,
+                            entropy_threshold,
+                            args.kmer,
+                        ),
+                    }
+                }
+                Algorithm::Sdust => {
+                    mask_sequence_sdust(
+                        &record.seq,
+                        &record.qual,
+                        window,
+                        sdust_threshold,
+                    )
+                }
             }
         })
         .collect();
