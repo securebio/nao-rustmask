@@ -476,13 +476,12 @@ struct MaskRegion {
 
 /// SDUST window scorer
 struct SdustScorer {
-    window_size: usize,
     threshold: i32,
 }
 
 impl SdustScorer {
-    pub fn new(window_size: usize, threshold: i32) -> Self {
-        Self { window_size, threshold }
+    pub fn new(threshold: i32) -> Self {
+        Self { threshold }
     }
 
     /// Calculate DUST score for a window of triplets
@@ -523,7 +522,7 @@ fn find_dust_regions(
     window_size: usize,
     threshold: i32,
 ) -> Vec<MaskRegion> {
-    let scorer = SdustScorer::new(window_size, threshold);
+    let scorer = SdustScorer::new(threshold);
     let mut regions = Vec::new();
 
     if triplets.len() < window_size {
