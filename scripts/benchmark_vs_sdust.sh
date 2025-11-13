@@ -289,7 +289,6 @@ $ZCAT_CMD "$RUSTMASKER_OUT" | awk 'NR%4==1 {print ">" substr($0,2)} NR%4==2 {pri
 # Normalize both FASTA files for comparison:
 # 1. Extract only the read ID from headers (first field)
 # 2. Unwrap sequences (remove line breaks within sequences)
-# 3. Sort by read ID for consistent ordering
 
 # Process sdust FASTA: normalize headers and unwrap sequences
 awk '
@@ -308,7 +307,7 @@ awk '
     END {
         if (seq) print seq;
     }
-' "$SDUST_FASTA" | paste - - | sort > "$OUTPUT_DIR/sdust_seqs.txt"
+' "$SDUST_FASTA" | paste - - > "$OUTPUT_DIR/sdust_seqs.txt"
 
 # Process rustmasker FASTA: normalize headers and unwrap sequences
 awk '
@@ -327,7 +326,7 @@ awk '
     END {
         if (seq) print seq;
     }
-' "$RUSTMASKER_FASTA" | paste - - | sort > "$OUTPUT_DIR/rustmasker_seqs.txt"
+' "$RUSTMASKER_FASTA" | paste - - > "$OUTPUT_DIR/rustmasker_seqs.txt"
 
 # Compare outputs
 OUTPUTS_MATCH="YES"
