@@ -169,21 +169,26 @@ fasta_file = sys.argv[1]
 bed_file = sys.argv[2]
 output_file = sys.argv[3]
 
-# Read sequences
+# Read sequences and preserve full headers
 sequences = {}
+header_order = []
 current_id = None
+current_header = None
 with open(fasta_file) as f:
     for line in f:
         line = line.strip()
         if line.startswith('>'):
+            # Extract ID (first field) for lookups, but keep full header
             current_id = line[1:].split()[0]
-            sequences[current_id] = []
+            current_header = line[1:]  # Full header without '>'
+            sequences[current_id] = {'header': current_header, 'seq': []}
+            header_order.append(current_id)
         else:
-            sequences[current_id].append(line)
+            sequences[current_id]['seq'].append(line)
 
 # Convert sequences to mutable lists
 for seq_id in sequences:
-    sequences[seq_id] = list(''.join(sequences[seq_id]))
+    sequences[seq_id]['seq'] = list(''.join(sequences[seq_id]['seq']))
 
 # Apply masks from BED file
 with open(bed_file) as f:
@@ -194,17 +199,16 @@ with open(bed_file) as f:
             start = int(parts[1])
             end = int(parts[2])
             if seq_id in sequences:
-                for i in range(start, min(end, len(sequences[seq_id]))):
-                    sequences[seq_id][i] = 'N'
+                for i in range(start, min(end, len(sequences[seq_id]['seq']))):
+                    sequences[seq_id]['seq'][i] = 'N'
 
-# Write masked sequences
+# Write masked sequences with full headers and unwrapped sequences
 with open(output_file, 'w') as f:
-    for seq_id, seq_list in sequences.items():
-        f.write(f'>{seq_id}\n')
-        seq = ''.join(seq_list)
-        # Write in 80-character lines
-        for i in range(0, len(seq), 80):
-            f.write(seq[i:i+80] + '\n')
+    for seq_id in header_order:
+        full_header = sequences[seq_id]['header']
+        seq = ''.join(sequences[seq_id]['seq'])
+        f.write(f'>{full_header}\n')
+        f.write(seq + '\n')
 EOF
 
 # Extract sdust stats
