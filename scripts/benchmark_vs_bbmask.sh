@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./benchmark_vs_bbmask.sh test.fastq
-#   ./benchmark_vs_bbmask.sh test.fastq --window 25 --entropy 0.55 --kmer 5
+#   ./benchmark_vs_bbmask.sh test.fastq --window 25 --threshold 0.55 --kmer 5
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 
 # Default parameters (matching bbmask defaults)
 WINDOW=80
-ENTROPY=0.70
+THRESHOLD=0.70
 KMER=5
 THREADS=4  # Default thread count for parallel version
 
@@ -28,26 +28,26 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 <input.fastq> [options]"
             echo ""
             echo "Options:"
-            echo "  -w, --window N    Window size for entropy calculation (default: $WINDOW)"
-            echo "  -e, --entropy N   Entropy threshold (default: $ENTROPY)"
-            echo "  -k, --kmer N      K-mer size (default: $KMER)"
-            echo "  -t, --threads N   Number of threads for parallel version (default: $THREADS)"
-            echo "  -h, --help        Show this help"
+            echo "  -w, --window N      Window size for entropy calculation (default: $WINDOW)"
+            echo "  -t, --threshold N   Entropy threshold (default: $THRESHOLD)"
+            echo "  -k, --kmer N        K-mer size (default: $KMER)"
+            echo "  -j, --threads N     Number of threads for parallel version (default: $THREADS)"
+            echo "  -h, --help          Show this help"
             exit 0
             ;;
         -w|--window)
             WINDOW="$2"
             shift 2
             ;;
-        -e|--entropy)
-            ENTROPY="$2"
+        -t|--threshold)
+            THRESHOLD="$2"
             shift 2
             ;;
         -k|--kmer)
             KMER="$2"
             shift 2
             ;;
-        -t|--threads)
+        -j|--threads)
             THREADS="$2"
             shift 2
             ;;
@@ -137,7 +137,7 @@ echo ""
 echo -e "${GREEN}Input file:${NC} $INPUT_FASTQ"
 echo -e "${GREEN}File size:${NC} $INPUT_SIZE"
 echo -e "${GREEN}Num reads:${NC} $NUM_READS"
-echo -e "${GREEN}Parameters:${NC} window=$WINDOW, entropy=$ENTROPY, ke=$KMER"
+echo -e "${GREEN}Parameters:${NC} window=$WINDOW, threshold=$THRESHOLD, kmer=$KMER"
 echo -e "${GREEN}Threads:${NC} $THREADS"
 echo -e "${GREEN}BBMask mode:${NC} entropy-only (maskrepeats=f, masklowentropy=t)"
 echo ""
@@ -155,7 +155,7 @@ if [[ "$HAS_MEMORY" -eq 1 ]]; then
     $TIME_CMD bbmask.sh \
         in="$INPUT_FASTQ" \
         out="$BBMASK_OUT" \
-        entropy="$ENTROPY" \
+        entropy="$THRESHOLD" \
         ke="$KMER" \
         window="$WINDOW" \
         maskrepeats=f \
@@ -165,7 +165,7 @@ else
     { time bbmask.sh \
         in="$INPUT_FASTQ" \
         out="$BBMASK_OUT" \
-        entropy="$ENTROPY" \
+        entropy="$THRESHOLD" \
         ke="$KMER" \
         window="$WINDOW" \
         maskrepeats=f \
@@ -205,9 +205,9 @@ RUSTMASKER_OUT="$OUTPUT_DIR/rustmasker_output.fastq.gz"
 RUSTMASKER_TIME="$OUTPUT_DIR/rustmasker_time.txt"
 
 if [[ "$HAS_MEMORY" -eq 1 ]]; then
-    $TIME_CMD sh -c "cat '$INPUT_FASTQ' | '$RUSTMASKER' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$RUSTMASKER_OUT'" 2>&1 | tee "$RUSTMASKER_TIME"
+    $TIME_CMD sh -c "cat '$INPUT_FASTQ' | '$RUSTMASKER' -w $WINDOW -t $THRESHOLD -k $KMER -c 1 -j $THREADS > '$RUSTMASKER_OUT'" 2>&1 | tee "$RUSTMASKER_TIME"
 else
-    { time sh -c "cat '$INPUT_FASTQ' | '$RUSTMASKER' -w $WINDOW -e $ENTROPY -k $KMER -c 1 -t $THREADS > '$RUSTMASKER_OUT'" ; } 2> "$RUSTMASKER_TIME"
+    { time sh -c "cat '$INPUT_FASTQ' | '$RUSTMASKER' -w $WINDOW -t $THRESHOLD -k $KMER -c 1 -j $THREADS > '$RUSTMASKER_OUT'" ; } 2> "$RUSTMASKER_TIME"
 fi
 
 # Extract rustmasker stats

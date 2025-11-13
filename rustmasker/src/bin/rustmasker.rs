@@ -34,8 +34,8 @@ struct Args {
     window: usize,
 
     /// Entropy threshold (mask if entropy < threshold)
-    #[arg(short = 'e', long, default_value_t = 0.70)]
-    entropy: f64,
+    #[arg(short = 't', long, default_value_t = 0.70)]
+    threshold: f64,
 
     /// K-mer size for entropy calculation (maximum k=15)
     #[arg(short = 'k', long, default_value_t = 5)]
@@ -55,7 +55,7 @@ struct Args {
     chunk_size: usize,
 
     /// Number of threads to use (default: auto-detect CPU cores)
-    #[arg(short = 't', long)]
+    #[arg(short = 'j', long)]
     threads: Option<usize>,
 }
 
@@ -118,10 +118,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("  - other files: uncompressed (use -c 1-9 to compress)");
         eprintln!();
         eprintln!("Examples:");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq -t 4         # uncompressed");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -t 4     # compressed (level 1)");
-        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -c 6 -t 4  # compressed (level 6)");
-        eprintln!("  cat reads.fastq | mask_fastq -t 4 > masked.fastq         # uncompressed stdout");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq -j 4         # uncompressed");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -j 4     # compressed (level 1)");
+        eprintln!("  mask_fastq -i reads.fastq.gz -o masked.fastq.gz -c 6 -j 4  # compressed (level 6)");
+        eprintln!("  cat reads.fastq | mask_fastq -j 4 > masked.fastq         # uncompressed stdout");
         eprintln!();
         eprintln!("For full help, use: mask_fastq --help");
         std::process::exit(1);
@@ -242,21 +242,21 @@ fn process_and_write_chunk(
                     &record.seq,
                     &record.qual,
                     args.window,
-                    args.entropy,
+                    args.threshold,
                     args.kmer,
                 ),
                 Method::Array => mask_sequence_array(
                     &record.seq,
                     &record.qual,
                     args.window,
-                    args.entropy,
+                    args.threshold,
                     args.kmer,
                 ),
                 Method::Hashmap => mask_sequence(
                     &record.seq,
                     &record.qual,
                     args.window,
-                    args.entropy,
+                    args.threshold,
                     args.kmer,
                 ),
             }

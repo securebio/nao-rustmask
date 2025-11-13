@@ -63,7 +63,7 @@ rustmasker -i input.fastq.gz -o output.fastq
 # Custom parameters
 rustmasker -i input.fastq.gz -o output.fastq.gz \
   --window 50 \
-  --entropy 0.6 \
+  --threshold 0.6 \
   --kmer 7
 
 # Force specific method (array is default for k≤7)
@@ -73,12 +73,12 @@ rustmasker -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
 rustmasker -i large.fastq.gz -o masked.fastq.gz
 
 # Specify thread count
-rustmasker -i large.fastq.gz -o masked.fastq.gz --threads 8
+rustmasker -i large.fastq.gz -o masked.fastq.gz -j 8
 
 # Adjust chunk size for memory/performance tradeoff
 rustmasker -i large.fastq.gz -o masked.fastq.gz \
   --chunk-size 5000 \
-  --threads 8
+  -j 8
 ```
 
 ### Command-Line Options
@@ -88,11 +88,11 @@ rustmasker -i large.fastq.gz -o masked.fastq.gz \
 | `--input` | `-i` | stdin | Input FASTQ file (plain or gzipped) |
 | `--output` | `-o` | stdout | Output FASTQ file |
 | `--window` | `-w` | 80 | Window size for entropy calculation |
-| `--entropy` | `-e` | 0.70 | Entropy threshold (mask if < threshold) |
+| `--threshold` | `-t` | 0.70 | Entropy threshold (mask if < threshold) |
 | `--kmer` | `-k` | 5 | K-mer size (1-15) |
 | `--method` | `-m` | auto | Method: `auto` (adaptive), `array` (fast), or `hashmap` (memory-efficient) |
 | `--compression-level` | `-c` | auto | Gzip compression level (0-9) |
-| `--threads` | `-t` | auto | Number of threads to use |
+| `--threads` | `-j` | auto | Number of threads to use |
 | `--chunk-size` | `-s` | 1000 | Reads per chunk (affects memory usage) |
 
 ### Compression Behavior
@@ -178,7 +178,7 @@ cd scripts
 ./benchmark_vs_bbmask.sh illumina.fastq
 
 # Custom parameters
-./benchmark_vs_bbmask.sh illumina.fastq --window 50 --entropy 0.6
+./benchmark_vs_bbmask.sh illumina.fastq --window 50 --threshold 0.6
 ```
 
 The benchmark script:
@@ -202,7 +202,7 @@ bbmask.sh in=input.fastq out=bbmask_out.fastq \
 
 # Equivalent rustmasker command
 rustmasker -i input.fastq -o rustmasker_out.fastq \
-  -e 0.55 -w 25 -k 5
+  -t 0.55 -w 25 -k 5
 
 # Verify identical output
 diff bbmask_out.fastq rustmasker_out.fastq
