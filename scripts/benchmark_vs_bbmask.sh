@@ -230,9 +230,37 @@ else
     RUSTMASKER_MEMORY_MB="unavailable"
 fi
 
-# Count masked bases in rustmasker output
-RUSTMASKER_TOTAL_BASES=$($ZCAT_CMD "$RUSTMASKER_OUT" | awk 'NR%4==2 {sum+=length($0)} END {print sum}')
-RUSTMASKER_MASKED_BASES=$($ZCAT_CMD "$RUSTMASKER_OUT" | awk 'NR%4==2 {gsub(/[^N]/,"",$0); sum+=length($0)} END {print sum}')
+# Count NEWLY masked bases in rustmasker output (excluding pre-existing Ns)
+# This matches BBMask's counting method
+RUSTMASKER_STATS=$(python3 -c "
+import gzip
+
+def open_file(filepath):
+    if filepath.endswith('.gz'):
+        return gzip.open(filepath, 'rt')
+    return open(filepath, 'r')
+
+with open_file('$INPUT_FASTQ') as f_in, open_file('$RUSTMASKER_OUT') as f_out:
+    in_lines = f_in.readlines()
+    out_lines = f_out.readlines()
+
+    newly_masked = 0
+    total_bases = 0
+
+    for i in range(0, len(in_lines), 4):
+        in_seq = in_lines[i+1].strip()
+        out_seq = out_lines[i+1].strip()
+
+        for in_base, out_base in zip(in_seq, out_seq):
+            total_bases += 1
+            if in_base != 'N' and in_base != 'n' and (out_base == 'N' or out_base == 'n'):
+                newly_masked += 1
+
+    print(f'{newly_masked}/{total_bases}')
+")
+
+RUSTMASKER_MASKED_BASES=$(echo "$RUSTMASKER_STATS" | cut -d'/' -f1)
+RUSTMASKER_TOTAL_BASES=$(echo "$RUSTMASKER_STATS" | cut -d'/' -f2)
 RUSTMASKER_MASKED_PCT=$(echo "scale=3; $RUSTMASKER_MASKED_BASES * 100 / $RUSTMASKER_TOTAL_BASES" | bc)
 
 echo -e "${GREEN}✓ rustmasker completed${NC}"
