@@ -156,9 +156,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if should_compress {
             let level = args.compression_level.unwrap_or(1);  // Default to level 1 for .gz files
             // Use parallel compression with gzp
-            let encoder = ParCompressBuilder::<Gzip>::new()
-                .compression_level(GzpCompression::new(level))
-                .from_writer(output_file);
+            let mut builder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level));
+
+            // Configure compression threads if specified
+            if let Some(threads) = args.threads {
+                builder = builder.num_threads(threads)?;
+            }
+
+            let encoder = builder.from_writer(output_file);
             Box::new(BufWriter::new(encoder))
         } else {
             Box::new(BufWriter::new(output_file))
@@ -174,9 +180,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let level = args.compression_level.unwrap();
             let stdout = io::stdout();
             // Use parallel compression with gzp
-            let encoder = ParCompressBuilder::<Gzip>::new()
-                .compression_level(GzpCompression::new(level))
-                .from_writer(stdout);
+            let mut builder = ParCompressBuilder::<Gzip>::new()
+                .compression_level(GzpCompression::new(level));
+
+            // Configure compression threads if specified
+            if let Some(threads) = args.threads {
+                builder = builder.num_threads(threads)?;
+            }
+
+            let encoder = builder.from_writer(stdout);
             Box::new(BufWriter::new(encoder))
         } else {
             let stdout = io::stdout();
