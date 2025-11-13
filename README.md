@@ -1,4 +1,4 @@
-# nao-rustmask
+# nao-rustmasker
 
 Fast, memory-efficient low-complexity masking for FASTQ files, written in Rust.
 
@@ -40,11 +40,11 @@ Masked:    ACGTACGT NNNNNNNNNN GCTAGCTA
 ### Build from Source
 
 ```bash
-cd mask_fastq
+cd rustmasker
 cargo build --release
 ```
 
-The compiled binary will be in `mask_fastq/target/release/mask_fastq`
+The compiled binary will be in `rustmasker/target/release/rustmasker`
 
 ## Usage
 
@@ -52,31 +52,31 @@ The compiled binary will be in `mask_fastq/target/release/mask_fastq`
 
 ```bash
 # Read from file, write to file
-mask_fastq -i input.fastq.gz -o output.fastq.gz
+rustmasker -i input.fastq.gz -o output.fastq.gz
 
 # Use stdin/stdout
-cat input.fastq.gz | mask_fastq > output.fastq
+cat input.fastq.gz | rustmasker > output.fastq
 
 # Uncompressed output
-mask_fastq -i input.fastq.gz -o output.fastq
+rustmasker -i input.fastq.gz -o output.fastq
 
 # Custom parameters
-mask_fastq -i input.fastq.gz -o output.fastq.gz \
+rustmasker -i input.fastq.gz -o output.fastq.gz \
   --window 50 \
   --entropy 0.6 \
   --kmer 7
 
 # Force specific method (array is default for k≤7)
-mask_fastq -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
+rustmasker -i input.fastq.gz -o output.fastq.gz --kmer 9 --method array
 
 # Use all available CPU cores (default)
-mask_fastq -i large.fastq.gz -o masked.fastq.gz
+rustmasker -i large.fastq.gz -o masked.fastq.gz
 
 # Specify thread count
-mask_fastq -i large.fastq.gz -o masked.fastq.gz --threads 8
+rustmasker -i large.fastq.gz -o masked.fastq.gz --threads 8
 
 # Adjust chunk size for memory/performance tradeoff
-mask_fastq -i large.fastq.gz -o masked.fastq.gz \
+rustmasker -i large.fastq.gz -o masked.fastq.gz \
   --chunk-size 5000 \
   --threads 8
 ```
@@ -107,16 +107,16 @@ The tool automatically handles compression based on context:
 Examples:
 ```bash
 # Compressed output (fast, level 1)
-mask_fastq -i in.fastq.gz -o out.fastq.gz
+rustmasker -i in.fastq.gz -o out.fastq.gz
 
 # Compressed output (maximum, level 9)
-mask_fastq -i in.fastq.gz -o out.fastq.gz -c 9
+rustmasker -i in.fastq.gz -o out.fastq.gz -c 9
 
 # Uncompressed output
-mask_fastq -i in.fastq.gz -o out.fastq
+rustmasker -i in.fastq.gz -o out.fastq
 
 # Compressed stdout
-cat in.fastq | mask_fastq -c 6 > out.fastq.gz
+cat in.fastq | rustmasker -c 6 > out.fastq.gz
 ```
 
 ## Algorithm Details
@@ -166,7 +166,7 @@ This creates contiguous masked regions, matching BBMask behavior.
 
 ## Benchmarking
 
-Compare `mask_fastq` performance against BBMask:
+Compare `rustmasker` performance against BBMask:
 
 ```bash
 cd scripts
@@ -200,18 +200,19 @@ Output should be identical to BBMask's `bbmask.sh` with equivalent parameters:
 bbmask.sh in=input.fastq out=bbmask_out.fastq \
   entropy=0.55 window=25 k=5
 
-# Equivalent mask_fastq command
-mask_fastq -i input.fastq -o mask_fastq_out.fastq \
+# Equivalent rustmasker command
+rustmasker -i input.fastq -o rustmasker_out.fastq \
   -e 0.55 -w 25 -k 5
 
 # Verify identical output
-diff bbmask_out.fastq mask_fastq_out.fastq
+diff bbmask_out.fastq rustmasker_out.fastq
 # (no output = files are identical)
 ```
 
 ## Limitations
 
 - Currently only works on Fastq files, not Fasta
+- Only supports BBMask's fixed-k entropy masking
 
 ## Acknowledgments
 

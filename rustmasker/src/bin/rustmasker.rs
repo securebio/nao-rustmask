@@ -4,7 +4,7 @@ use needletail::{parse_fastx_stdin, parse_fastx_file};
 use gzp::{deflate::Gzip, par::compress::ParCompressBuilder, Compression as GzpCompression};
 use clap::{Parser, ValueEnum};
 use rayon::prelude::*;
-use mask_fastq::{mask_sequence_auto, mask_sequence_array, mask_sequence};
+use rustmasker::{mask_sequence_auto, mask_sequence_array, mask_sequence};
 
 /// Method for entropy calculation
 #[derive(ValueEnum, Clone, Debug)]

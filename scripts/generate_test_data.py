@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate synthetic FASTQ data for benchmarking mask_fastq vs bbmask.sh
+Generate synthetic FASTQ data for benchmarking rustmasker vs bbmask.sh
 
 Creates reads with varying complexity:
 - Low complexity (homopolymers, dinucleotide repeats)

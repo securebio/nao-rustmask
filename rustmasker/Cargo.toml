@@ -1,12 +1,12 @@
 [package]
-name = "mask_fastq"
-version = "0.1.0"
+name = "rustmasker"
+version = "0.2.0"
 edition = "2021"
 
 # Define binary
 [[bin]]
-name = "mask_fastq"
-path = "src/bin/mask_fastq.rs"
+name = "rustmasker"
+path = "src/bin/rustmasker.rs"
 
 [dependencies]
 needletail = "0.5"

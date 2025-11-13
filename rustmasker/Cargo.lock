@@ -290,17 +290,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mask_fastq"
-version = "0.1.0"
-dependencies = [
- "clap",
- "flate2",
- "gzp",
- "needletail",
- "rayon",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -417,6 +406,17 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rustmasker"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "flate2",
+ "gzp",
+ "needletail",
+ "rayon",
 ]
 
 [[package]]

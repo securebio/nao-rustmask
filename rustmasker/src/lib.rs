@@ -1,4 +1,4 @@
-// Shared library for mask_fastq and mask_fastq_parallel
+// Shared library for rustmasker
 use std::collections::HashMap;
 
 /// Encode a k-mer into a u32 using 2 bits per base (A=00, C=01, G=10, T=11)
