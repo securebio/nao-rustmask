@@ -309,9 +309,11 @@ if [[ "$BBMASK_RUNTIME" != "unknown" && "$RUSTMASKER_RUNTIME" != "unknown" ]]; t
     BBMASK_SEC=$(echo "$BBMASK_RUNTIME" | bc)
     RUSTMASKER_SEC=$(echo "$RUSTMASKER_RUNTIME" | bc)
 
-    if [[ $(echo "$BBMASK_SEC > 0" | bc) -eq 1 ]]; then
+    if [[ $(echo "$BBMASK_SEC > 0" | bc) -eq 1 && $(echo "$RUSTMASKER_SEC > 0" | bc) -eq 1 ]]; then
         SPEEDUP=$(echo "scale=2; $BBMASK_SEC / $RUSTMASKER_SEC" | bc)
         echo -e "${GREEN}Speedup (rustmasker vs BBMask): ${SPEEDUP}x${NC}"
+    elif [[ $(echo "$RUSTMASKER_SEC == 0" | bc) -eq 1 ]]; then
+        echo -e "${GREEN}Speedup: rustmasker runtime too fast to measure accurately (<0.01s)${NC}"
     fi
 fi
 
