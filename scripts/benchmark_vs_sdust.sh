@@ -286,29 +286,56 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 RUSTMASKER_FASTA="$OUTPUT_DIR/rustmasker_output.fasta"
 $ZCAT_CMD "$RUSTMASKER_OUT" | awk 'NR%4==1 {print ">" substr($0,2)} NR%4==2 {print}' > "$RUSTMASKER_FASTA"
 
-# Extract sequences only for comparison (sorted by ID)
-awk 'NR%2==0' "$SDUST_FASTA" | paste - - | sort > "$OUTPUT_DIR/sdust_seqs.txt"
-awk 'NR%2==0' "$RUSTMASKER_FASTA" | paste - - | sort > "$OUTPUT_DIR/rustmasker_seqs.txt"
+# Normalize both FASTA files for comparison:
+# 1. Extract only the read ID from headers (first field)
+# 2. Unwrap sequences (remove line breaks within sequences)
+# 3. Sort by read ID for consistent ordering
+
+# Process sdust FASTA: normalize headers and unwrap sequences
+awk '
+    /^>/ {
+        if (seq) print seq;
+        seq = "";
+        # Extract just the read ID (first field after >)
+        split($0, parts, " ");
+        print parts[1];
+        next;
+    }
+    {
+        # Accumulate sequence on one line
+        seq = seq $0;
+    }
+    END {
+        if (seq) print seq;
+    }
+' "$SDUST_FASTA" | paste - - | sort > "$OUTPUT_DIR/sdust_seqs.txt"
+
+# Process rustmasker FASTA: normalize headers and unwrap sequences
+awk '
+    /^>/ {
+        if (seq) print seq;
+        seq = "";
+        # Extract just the read ID (first field after >)
+        split($0, parts, " ");
+        print parts[1];
+        next;
+    }
+    {
+        # Accumulate sequence on one line
+        seq = seq $0;
+    }
+    END {
+        if (seq) print seq;
+    }
+' "$RUSTMASKER_FASTA" | paste - - | sort > "$OUTPUT_DIR/rustmasker_seqs.txt"
 
 # Compare outputs
 OUTPUTS_MATCH="YES"
-DIFF_COUNT=0
 if diff -q "$OUTPUT_DIR/sdust_seqs.txt" "$OUTPUT_DIR/rustmasker_seqs.txt" > /dev/null; then
     echo -e "${GREEN}✓ sdust vs rustmasker: IDENTICAL${NC}"
 else
-    echo -e "${YELLOW}⚠ sdust vs rustmasker: DIFFER${NC}"
-    OUTPUTS_MATCH="SIMILAR"
-
-    # Count differences
-    DIFF_COUNT=$(diff "$OUTPUT_DIR/sdust_seqs.txt" "$OUTPUT_DIR/rustmasker_seqs.txt" | grep -c "^<" || true)
-
-    # Calculate similarity percentage
-    TOTAL_LINES=$(wc -l < "$OUTPUT_DIR/sdust_seqs.txt")
-    if [[ $TOTAL_LINES -gt 0 ]]; then
-        SIMILARITY=$(echo "scale=2; (1 - $DIFF_COUNT / $TOTAL_LINES) * 100" | bc)
-        echo -e "${YELLOW}  Similarity: ${SIMILARITY}% ($DIFF_COUNT differences in $TOTAL_LINES sequences)${NC}"
-        echo -e "${YELLOW}  Note: Minor differences expected due to different window sliding implementations${NC}"
-    fi
+    echo -e "${RED}✗ sdust vs rustmasker: DIFFER${NC}"
+    OUTPUTS_MATCH="NO"
 fi
 echo ""
 
@@ -360,9 +387,3 @@ fi
 
 echo ""
 echo -e "${BLUE}Results saved to: $OUTPUT_DIR/${NC}"
-echo ""
-echo -e "${YELLOW}Note:${NC} sdust and rustmasker may produce slightly different masks due to:"
-echo "  - Different window sliding implementations"
-echo "  - Edge case handling at sequence boundaries"
-echo "  - Handling of N-containing regions"
-echo "  These differences are typically minor (<1% of bases)."
